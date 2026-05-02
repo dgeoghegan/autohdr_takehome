@@ -44,4 +44,4 @@ def ask_gemini_vision(prompt: str, image_bytes: bytes, mime_type: str = "image/j
     text = response.text
     if not text:
         raise GeminiParseError("Empty response from Gemini")
-    return text
+    return text, response.usage_metadata
