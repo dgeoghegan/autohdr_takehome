@@ -27,8 +27,6 @@ def _pad_bbox(bbox: dict, padding: int, img_w: int, img_h: int) -> dict:
         "y2": min(img_h, bbox["y2"] + padding),
     }
 
-from mock_gemini import mock_gemini_vision, FIXTURE_TV_SINGLE, MockGenerateContentResponse
-
 def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE) -> list[dict]:
     img = cv2.imread(image_path)
     h, w = img.shape[:2]

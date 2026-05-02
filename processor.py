@@ -16,7 +16,8 @@ def save_crops(image_path: str, detections: list) -> list[str]:
     for i, det in enumerate(detections):
         bbox = det["bbox"]
         crop = img[bbox["y1"]:bbox["y2"], bbox["x1"]:bbox["x2"]]
-        out_path = f"{out_dir}/{base}_crop_{i}_{det['identified_as']}_{det['tv_confidence']}.jpg"
+        label = det['identified_as'].replace('/', '_').replace(' ', '_')
+        out_path = f"{out_dir}/{base}_crop_{i}_{label}_{det['tv_confidence']}.jpg"
         cv2.imwrite(str(out_path), crop)
         crop_paths.append(out_path)
         print(f"    Saved {out_path}")
