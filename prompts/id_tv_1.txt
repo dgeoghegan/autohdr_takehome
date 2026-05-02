@@ -21,6 +21,7 @@ Rules:
 - tv_confidence < 0.4 means probably not a TV but worth flagging
 - Set tv_found to true only if at least one detection has tv_confidence >= 0.7
 - If nothing rectangular or display-like is present, return {"tv_found": false, "detections": []}
+- The bounding box must be tight around the TV screen, including all of the tv but excluding excess on either side. Do not include empty space above, below, or beside the TV.
 - bbox must be returned as "box_2d": [ymin, xmin, ymax, xmax] normalized to 0-1000
 - Do not use pixel coordinates
 - Example: [125, 300, 450, 800]
