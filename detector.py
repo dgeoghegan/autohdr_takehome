@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from gemini import ask_gemini_vision
 from logger import log_token_usage
+from mock_gemini import mock_gemini_vision, FIXTURE_TV_SINGLE, MockGenerateContentResponse
 import cv2
 
 PROMPT_PATH = "prompts/id_tv_1.txt"
@@ -26,22 +27,33 @@ def _pad_bbox(bbox: dict, padding: int, img_w: int, img_h: int) -> dict:
         "y2": min(img_h, bbox["y2"] + padding),
     }
 
-def detect_tvs(image_path: str) -> list[dict]:
+from mock_gemini import mock_gemini_vision, FIXTURE_TV_SINGLE, MockGenerateContentResponse
+
+def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE) -> list[dict]:
     img = cv2.imread(image_path)
     h, w = img.shape[:2]
     _, buf = cv2.imencode(".jpg", img)
     image_bytes = buf.tobytes()
 
     prompt = Path(PROMPT_PATH).read_text()
-    raw, usage  = ask_gemini_vision(prompt, image_bytes)
-    log_token_usage(image_path, usage)
+
+    if mock:
+        raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
+    else:
+        raw, usage = ask_gemini_vision(prompt, image_bytes)
+
+    if not mock:
+        log_token_usage(image_path, usage)
 
     result = json.loads(raw)
 
     detections = []
     for det in result.get("detections", []):
-        det["bbox"] = _descale_bbox(det["box_2d"], w, h)
-        det["bbox"] = _pad_bbox(det["bbox"], BBOX_PADDING_PIX, w, h)
-        detections.append(det)
+        try:
+            det["bbox"] = _descale_bbox(det["box_2d"], w, h)
+            det["bbox"] = _pad_bbox(det["bbox"], BBOX_PADDING_PIX, w, h)
+            detections.append(det)
+        except (ValueError, KeyError) as e:
+            print(f"  Skipping detection, bad box_2d: {det.get('box_2d')} — {e}")
 
     return detections

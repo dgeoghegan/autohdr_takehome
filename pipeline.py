@@ -11,6 +11,7 @@ def main():
     parser = argparse.ArgumentParser(description="AutoHDR TV screen replacement pipeline")
     parser.add_argument("--input_dir", required=True, help="Directory of source images")
     parser.add_argument("--output_dir", required=True, help="Directory for output images")
+    parser.add_argument("--mock", action="store_true", help="Use mock Gemini instead of real API")
     args = parser.parse_args()
 
     image_paths = discover_images(args.input_dir)
@@ -19,7 +20,7 @@ def main():
     for image_path in image_paths:
         print(f"\nProcessing {image_path}")
         try:
-            detections = detect_tvs(image_path)
+            detections = detect_tvs(image_path, mock=args.mock)
         except GeminiError as e:
             print(f"  Gemini error: {e}")
             continue
