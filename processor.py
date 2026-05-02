@@ -69,9 +69,9 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
     x, y, w, h = cv2.boundingRect(dst_pts.astype(np.int32))
     src_pts = np.array([
         [0, 0],
-        [w, 0],
+        [0, h],
         [w, h],
-        [0, h]
+        [w, 0]
     ], dtype=np.float32)
 
     resized = cv2.resize(replacement, (w, h))
