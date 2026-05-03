@@ -100,14 +100,14 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
     print(f"  Saved {out_path}")
     return str(out_path)
 
-def draw_quad_highlight(crop_path: str, quad) -> tuple[str, bytes]:
+def draw_quad_highlight(crop_path: str, quad, quad_index: int) -> tuple[str, bytes]:
     img = cv2.imread(crop_path)
     out = img.copy()
     cv2.drawContours(out, [quad], -1, (180, 105, 255), 3)
 
     stem = Path(crop_path).stem
     parent = Path(crop_path).parent
-    out_path = str(parent / f"{stem}_highlighted.jpg")
+    out_path = str(parent / f"{stem}_highlighted_{quad_index}.jpg")
     cv2.imwrite(out_path, out)
 
     _, buf = cv2.imencode(".jpg", out)

@@ -76,8 +76,8 @@ def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContent
         crop_path = save_crop(image_path, det, i)
 
         quads = find_screen_quad(crop_path)
-        for quad in quads:
-            _, highlighted_bytes = draw_quad_highlight(crop_path, quad)
+        for quad_index, quad in enumerate(quads):
+            _, highlighted_bytes = draw_quad_highlight(crop_path, quad, quad_index)
             confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), mock=mock, tv_noconfirm=tv_noconfirm)
             print(f"  Confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
             if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
