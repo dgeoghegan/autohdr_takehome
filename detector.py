@@ -81,7 +81,10 @@ def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContent
             confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), mock=mock, tv_noconfirm=tv_noconfirm)
             print(f"  Confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
             if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
-                det["quad"] = quad.reshape(4, 2).tolist()
+                bbox = det["bbox"]
+                offset_quad = [[pt[0] + bbox["x1"], pt[1] + bbox["y1"]] for pt in quad.reshape(4, 2).tolist()]
+                det["quad"] = offset_quad
+                print(f"  Offset quad: {det['quad']}")
                 det["confirm_confidence"] = confirmation["tv_confidence"]
                 confirmed.append(det)
                 break  # stop at first confirmed quad
