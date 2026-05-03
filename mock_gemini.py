@@ -94,6 +94,22 @@ FIXTURE_CONFIRM_TV_UNCERTAIN = MockGenerateContentResponse(
     })
 )
 
+FIXTURE_EVALUATE_SUCCESS = MockGenerateContentResponse(
+    text=json.dumps({
+        "success": True,
+        "tv_confidence": 0.94,
+        "reasoning": "Beach scene is correctly placed on the TV screen and fills it naturally"
+    })
+)
+
+FIXTURE_EVALUATE_FAILURE = MockGenerateContentResponse(
+    text=json.dumps({
+        "success": False,
+        "tv_confidence": 0.88,
+        "reasoning": "No beach scene visible on the TV screen in this image"
+    })
+)
+
 # --- Mock client ---
 
 def mock_gemini_vision(prompt: str, image_bytes: bytes, fixture: MockGenerateContentResponse) -> tuple[str, MockUsageMetadata]:

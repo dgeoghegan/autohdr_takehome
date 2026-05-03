@@ -2,28 +2,11 @@
 import json
 from pathlib import Path
 from gemini import ask_gemini_vision
-from mock_gemini import mock_confirm_tv, MockGenerateContentResponse
+from mock_gemini import mock_confirm_tv, FIXTURE_EVALUATE_SUCCESS, FIXTURE_EVALUATE_FAILURE
 from logger import log_token_comment
 import cv2
 
 EVALUATE_PROMPT_PATH = "prompts/evaluate_result.txt"
-
-FIXTURE_EVALUATE_SUCCESS = MockGenerateContentResponse(
-    text=json.dumps({
-        "success": True,
-        "tv_confidence": 0.94,
-        "reasoning": "Beach scene is correctly placed on the TV screen and fills it naturally"
-    })
-)
-
-FIXTURE_EVALUATE_FAILURE = MockGenerateContentResponse(
-    text=json.dumps({
-        "success": False,
-        "tv_confidence": 0.88,
-        "reasoning": "No beach scene visible on the TV screen in this image"
-    })
-)
-
 
 def evaluate_result(image_path: str, mock: bool = False, force_fail: bool = False) -> dict:
     img = cv2.imread(image_path)
