@@ -48,7 +48,7 @@ def main():
     diff_path.write_text(diff_result.stdout)
 
     # run pipeline
-    result = subprocess.run(["python", "run.py", "--input_dir", INPUT_DIR, "--output_dir", OUTPUT_DIR, "--compare"])
+    result = subprocess.run(["python", "run.py", "--input_dir", INPUT_DIR, "--output_dir", OUTPUT_DIR, "--compare", "--workers", "6"])
 
     # pull run summary from last line
     run_summary = {}
@@ -98,8 +98,8 @@ def main():
             "evaluation_failed": run_summary.get("evaluation_failed", 0),
             "gemini_error": run_summary.get("gemini_error", 0),
             "cv2_no_quad": run_summary.get("cv2_no_quad", 0),
-            "ground_truth_successes": ground_truth_successes if args.compare else None,
-            "iou_threshold": IOU_THRESHOLD if args.compare else None,
+            "ground_truth_successes": ground_truth_successes,
+            "iou_threshold": IOU_THRESHOLD,
         }
         with open(TEST_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")

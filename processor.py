@@ -46,7 +46,7 @@ def find_screen_quad(crop_path: str):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 30, 100)
+    edges = cv2.Canny(blurred, 50, 150)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     edges = cv2.dilate(edges, kernel, iterations=1)
 
@@ -100,7 +100,8 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
 
     return img, out_path
 
-def draw_quad_highlight(image_path: str, quad) -> tuple[str, bytes]:
+def draw_quad_highlight(image_path: str, quad, attempt: int = 0) -> tuple[str, bytes]:
+
     img = cv2.imread(image_path)
     out = img.copy()
     cv2.drawContours(out, [np.array(quad)], -1, (180, 105, 255), 3)
@@ -108,7 +109,7 @@ def draw_quad_highlight(image_path: str, quad) -> tuple[str, bytes]:
     stem = Path(image_path).stem
     out_dir = Path(CROP_DIR) / stem
     out_dir.mkdir(parents = True, exist_ok = True)
-    out_path = str(out_dir / f"{stem}_highlighted.jpg")
+    out_path = str(out_dir / f"{stem}_highlighted_{attempt}.jpg")
     cv2.imwrite(out_path, out)
 
     _, buf = cv2.imencode(".jpg", out)
