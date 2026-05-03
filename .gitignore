@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+.autohdr-dev/
+venv/
+env/
+
+# Vim swap files
+*.swp
+*.swo
+
+# Logs
+logs/
+
+# Photos and local data
+photos/
+
+# Secrets
+.secrets.baseline
+.env
+
+# Pytest
+.pytest_cache/
+.coverage
+
+# Ruff
+.ruff_cache/
