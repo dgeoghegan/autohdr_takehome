@@ -3,7 +3,7 @@ import argparse
 from ingestor import discover_images
 from gemini import GeminiError
 from detector import detect_tvs
-from processor import save_crops, find_screen_quad, replace_screen
+from processor import replace_screen
 
 REPLACEMENT_PATH = "photos/replacement/autohdr.beach.jpeg"
 
@@ -12,6 +12,7 @@ def main():
     parser.add_argument("--input_dir", required=True, help="Directory of source images")
     parser.add_argument("--output_dir", required=True, help="Directory for output images")
     parser.add_argument("--mock", action="store_true", help="Use mock Gemini instead of real API")
+    parser.add_argument("--tv_noconfirm", action="store_true", help="Only with --mock. Force Gemini TV confirmatin to return no")
     args = parser.parse_args()
 
     image_paths = discover_images(args.input_dir)
@@ -20,20 +21,17 @@ def main():
     for image_path in image_paths:
         print(f"\nProcessing {image_path}")
         try:
-            detections = detect_tvs(image_path, mock=args.mock)
+            detections = detect_tvs(image_path, mock=args.mock, tv_noconfirm=args.tv_noconfirm)
         except GeminiError as e:
             print(f"  Gemini error: {e}")
             continue
 
         if not detections:
-            print("  No TVs detected")
+            print("  No confirmed TVs detected")
             continue
 
-        crop_paths = save_crops(image_path, detections)
-        for path in crop_paths:
-            quad = find_screen_quad(path)
-            if quad is not None:
-                replace_screen(path, quad, REPLACEMENT_PATH, args.output_dir)
+        for det in detections:
+            replace_screen(image_path, det["quad"], REPLACEMENT_PATH, args.output_dir)
 
 if __name__ == "__main__":
     main()

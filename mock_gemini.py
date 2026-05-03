@@ -70,6 +70,29 @@ FIXTURE_CONFOUNDER = _response(
     tv_found=False,
 )
 
+FIXTURE_CONFIRM_TV_YES = MockGenerateContentResponse(
+    text=json.dumps({
+        "is_tv": True,
+        "tv_confidence": 0.92,
+        "reasoning": "The highlighted region shows a flat panel display with bezel consistent with a television"
+    })
+)
+
+FIXTURE_CONFIRM_TV_NO = MockGenerateContentResponse(
+    text=json.dumps({
+        "is_tv": False,
+        "tv_confidence": 0.08,
+        "reasoning": "The highlighted region appears to be a fireplace opening, not a television screen"
+    })
+)
+
+FIXTURE_CONFIRM_TV_UNCERTAIN = MockGenerateContentResponse(
+    text=json.dumps({
+        "is_tv": False,
+        "tv_confidence": 0.45,
+        "reasoning": "The highlighted region is ambiguous, could be a display but context suggests otherwise"
+    })
+)
 
 # --- Mock client ---
 
@@ -77,6 +100,14 @@ def mock_gemini_vision(prompt: str, image_bytes: bytes, fixture: MockGenerateCon
     """
     Drop-in for ask_gemini_vision.
     prompt and image_bytes are accepted but ignored.
+    Returns (text, usage_metadata) matching real API contract.
+    """
+    return fixture.text, fixture.usage_metadata
+
+def mock_confirm_tv(prompt: str, image_bytes: bytes, fixture: MockGenerateContentResponse) -> tuple[str, MockUsageMetadata]:
+    """
+    Drop-in for ask_gemini_vision when confirming a quad is a TV.
+    prompt and image_bytes accepted but ignored.
     Returns (text, usage_metadata) matching real API contract.
     """
     return fixture.text, fixture.usage_metadata

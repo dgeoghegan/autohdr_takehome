@@ -6,6 +6,21 @@ import numpy as np
 CROP_DIR    = "photos/crops"
 OUTPUT_DIR = "photos/output"
 
+def save_crop(image_path: str, det: dict, index: int) -> str:
+    base = Path(image_path).stem
+    out_dir = Path(CROP_DIR) / base
+    out_dir.mkdir(parents=True, exist_ok=True)
+    img = cv2.imread(image_path)
+
+    bbox = det["bbox"]
+    crop = img[bbox["y1"]:bbox["y2"], bbox["x1"]:bbox["x2"]]
+    label = det["identified_as"].replace("/", "_").replace(" ", "_")
+    out_path = str(out_dir / f"{base}_crop_{index}_{label}_{det['tv_confidence']}.jpg")
+    cv2.imwrite(out_path, crop)
+    print(f"    Saved {out_path}")
+    return out_path
+
+# keeping legacy save_crops until sure I don't need
 def save_crops(image_path: str, detections: list) -> list[str]:
     base = Path(image_path).stem
     out_dir = Path(CROP_DIR) / base
@@ -25,41 +40,34 @@ def save_crops(image_path: str, detections: list) -> list[str]:
 
 def find_screen_quad(crop_path: str):
     img = cv2.imread(crop_path)
+    if img is None:
+        print(f"    Could not read {crop_path}")
+        return []
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 30, 100)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, kernel, iterations=1)
 
     stem = Path(crop_path).stem
     parent = Path(crop_path).parent
-    cv2.imwrite(str(parent / f"{stem}_gray.jpg"), gray)
     cv2.imwrite(str(parent / f"{stem}_edges.jpg"), edges)
 
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
     print(f"  Found {len(contours)} contours")
 
-    quad = None
+    quads = []
     for contour in contours[:10]: # log top 10
         peri = cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
         print(f"    contour area: {cv2.contourArea(contour):.0f}, vertices: {len(approx)}")
+        if len(approx) == 4:
+            quads.append(approx)
 
-        if quad is None and len(approx) == 4:
-            quad = approx
-
-    out = img.copy()
-    if quad is not None:
-        print(f"    Quad found: {quad.reshape(4,2).tolist()}")
-        cv2.drawContours(out, [quad], -1, (180, 105, 255), 3)  # pink in BGR
-    else:
-        print(f"  No quadrilateral found in {crop_path}")
-
-    stem = Path(crop_path).stem
-    suffix = Path(crop_path).suffix
-    out_path = str(Path(crop_path).parent / f"{stem}_highlighted{suffix}")
-    cv2.imwrite(out_path, out)
-    print(f"  Saved {out_path}")
-    return quad
+    print(f"   Found {len(quads)} quad candidates")
+    return quads
 
 def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: str) -> str:
     img = cv2.imread(image_path)
@@ -91,3 +99,18 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
     cv2.imwrite(str(out_path), img)
     print(f"  Saved {out_path}")
     return str(out_path)
+
+def draw_quad_highlight(crop_path: str, quad) -> tuple[str, bytes]:
+    img = cv2.imread(crop_path)
+    out = img.copy()
+    cv2.drawContours(out, [quad], -1, (180, 105, 255), 3)
+
+    stem = Path(crop_path).stem
+    parent = Path(crop_path).parent
+    out_path = str(parent / f"{stem}_highlighted.jpg")
+    cv2.imwrite(out_path, out)
+
+    _, buf = cv2.imencode(".jpg", out)
+    image_bytes = buf.tobytes()
+
+    return out_path, image_bytes

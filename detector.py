@@ -3,11 +3,13 @@ import json
 from pathlib import Path
 from gemini import ask_gemini_vision
 from logger import log_token_usage
-from mock_gemini import mock_gemini_vision, FIXTURE_TV_SINGLE, MockGenerateContentResponse
 import cv2
-
-PROMPT_PATH = "prompts/id_tv_1.txt"
+from processor import save_crop, find_screen_quad, draw_quad_highlight
+from mock_gemini import mock_gemini_vision, mock_confirm_tv, FIXTURE_TV_SINGLE, FIXTURE_CONFIRM_TV_YES, FIXTURE_CONFIRM_TV_NO, MockGenerateContentResponse
+DETECT_PROMPT_PATH = "prompts/id_tv_1.txt"
 BBOX_PADDING_PIX = 50
+CONFIRM_PROMPT_PATH = "prompts/confirm_tv.txt"
+CONFIRM_THRESHOLD = 0.7
 
 def _descale_bbox(box_2d: list, width: int, height: int) -> dict:
     """Convert Gemini's [ymin, xmin, ymax, xmax] normalized 0-1000 to pixel coords."""
@@ -27,13 +29,28 @@ def _pad_bbox(bbox: dict, padding: int, img_w: int, img_h: int) -> dict:
         "y2": min(img_h, bbox["y2"] + padding),
     }
 
-def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE) -> list[dict]:
+
+def confirm_tv(highlighted_bytes: bytes, reasoning: str, mock: bool = False, tv_noconfirm: bool = False) -> dict:
+    template = Path(CONFIRM_PROMPT_PATH).read_text()
+    prompt = template.replace("{REASONING}", reasoning)
+
+    if mock:
+        fixture = FIXTURE_CONFIRM_TV_NO if tv_noconfirm else FIXTURE_CONFIRM_TV_YES
+        raw, usage = mock_confirm_tv(prompt, highlighted_bytes, fixture)
+    else:
+        raw, usage = ask_gemini_vision(prompt, highlighted_bytes)
+    
+    # note: confirm calls don't log tokens yet — add later
+    return json.loads(raw)
+
+
+def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE, tv_noconfirm: bool = False) -> list[dict]:
     img = cv2.imread(image_path)
     h, w = img.shape[:2]
     _, buf = cv2.imencode(".jpg", img)
     image_bytes = buf.tobytes()
 
-    prompt = Path(PROMPT_PATH).read_text()
+    prompt = Path(DETECT_PROMPT_PATH).read_text()
 
     if mock:
         raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
@@ -45,13 +62,31 @@ def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContent
 
     result = json.loads(raw)
 
-    detections = []
-    for det in result.get("detections", []):
+    confirmed = []
+    for i, det in enumerate(result.get("detections", [])):
+        if det.get("tv_confidence", 0) < 0.7:
+            continue
         try:
             det["bbox"] = _descale_bbox(det["box_2d"], w, h)
             det["bbox"] = _pad_bbox(det["bbox"], BBOX_PADDING_PIX, w, h)
-            detections.append(det)
         except (ValueError, KeyError) as e:
             print(f"  Skipping detection, bad box_2d: {det.get('box_2d')} — {e}")
+            continue
 
-    return detections
+        crop_path = save_crop(image_path, det, i)
+
+        quads = find_screen_quad(crop_path)
+        for quad in quads:
+            _, highlighted_bytes = draw_quad_highlight(crop_path, quad)
+            confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), mock=mock, tv_noconfirm=tv_noconfirm)
+            print(f"  Confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
+            if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
+                det["quad"] = quad.reshape(4, 2).tolist()
+                det["confirm_confidence"] = confirmation["tv_confidence"]
+                confirmed.append(det)
+                break  # stop at first confirmed quad
+
+        if not confirmed or confirmed[-1].get("bbox") != det.get("bbox"):
+            print(f"  No confirmed quad for detection in {image_path}")
+
+    return confirmed
