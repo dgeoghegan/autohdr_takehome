@@ -104,7 +104,7 @@ def main():
         with open(TEST_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")
 
-    gt_str = f" — gt_successes={ground_truth_successes}/{successes}" if args.compare else ""
+    gt_str = f" — gt_successes={ground_truth_successes}/{successes}"
     print(f"\nResults: {successes}/{total} ({success_pct}%){gt_str} — {run_summary.get('total_tokens', 0)} tokens — {run_summary.get('runtime_seconds', 0)}s")
 
 if __name__ == "__main__":
