@@ -10,6 +10,7 @@ DETECT_PROMPT_PATH = "prompts/id_tv_1.txt"
 BBOX_PADDING_PIX = 50
 CONFIRM_PROMPT_PATH = "prompts/confirm_tv.txt"
 CONFIRM_THRESHOLD = 0.7
+MAX_RETRIES = 5
 
 def _descale_bbox(box_2d: list, width: int, height: int) -> dict:
     """Convert Gemini's [ymin, xmin, ymax, xmax] normalized 0-1000 to pixel coords."""
@@ -43,7 +44,6 @@ def confirm_tv(highlighted_bytes: bytes, reasoning: str, image_path: str, run_id
     
     return json.loads(raw)
 
-
 def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE, tv_noconfirm: bool = False) -> list[dict]:
     img = cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -52,41 +52,45 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
 
     prompt = Path(DETECT_PROMPT_PATH).read_text()
 
-    if mock:
-        raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
-    else:
-        raw, usage = ask_gemini_vision(prompt, image_bytes)
-        log_token_comment(f"detect_tv:{Path(image_path).name}", usage, run_id)
-
-    result = json.loads(raw)
-
     confirmed = []
-    for i, det in enumerate(result.get("detections", [])):
-        if det.get("tv_confidence", 0) < 0.7:
-            continue
-        try:
-            det["bbox"] = _descale_bbox(det["box_2d"], w, h)
-            det["bbox"] = _pad_bbox(det["bbox"], BBOX_PADDING_PIX, w, h)
-        except (ValueError, KeyError) as e:
-            print(f"  Skipping detection, bad box_2d: {det.get('box_2d')} — {e}")
-            continue
 
-        crop_path = save_crop(image_path, det, i)
+    for attempt in range(MAX_RETRIES):
+        if mock:
+            raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
+        else:
+            raw, usage = ask_gemini_vision(prompt, image_bytes)
+            log_token_comment(f"detect_tv:{Path(image_path).name}", usage, run_id)
 
-        quads = find_screen_quad(crop_path)
-        for quad_index, quad in enumerate(quads):
-            offset_quad = [[pt[0] + det["bbox"]["x1"], pt[1] + det["bbox"]["y1"]] for pt in quad.reshape(4, 2).tolist()]
-            _, highlighted_bytes = draw_quad_highlight(image_path, offset_quad)
-            confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), image_path, run_id, mock=mock, tv_noconfirm=tv_noconfirm)
-            print(f"  Confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
-            if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
-                det["quad"] = offset_quad
-                print(f"  Offset quad: {det['quad']}")
-                det["confirm_confidence"] = confirmation["tv_confidence"]
-                confirmed.append(det)
-                break
+        result = json.loads(raw)
 
-        if not confirmed or confirmed[-1].get("bbox") != det.get("bbox"):
-            print(f"  No confirmed quad for detection in {image_path}")
+        for i, det in enumerate(result.get("detections", [])):
+            if det.get("tv_confidence", 0) < 0.7:
+                continue
+            try:
+                det["bbox"] = _descale_bbox(det["box_2d"], w, h)
+                det["bbox"] = _pad_bbox(det["bbox"], BBOX_PADDING_PIX, w, h)
+            except (ValueError, KeyError) as e:
+                print(f"  Skipping detection, bad box_2d: {det.get('box_2d')} — {e}")
+                continue
+
+            crop_path = save_crop(image_path, det, i)
+            quads = find_screen_quad(crop_path)
+
+            for quad_index, quad in enumerate(quads):
+                offset_quad = [[pt[0] + det["bbox"]["x1"], pt[1] + det["bbox"]["y1"]] for pt in quad.reshape(4, 2).tolist()]
+                _, highlighted_bytes = draw_quad_highlight(image_path, offset_quad)
+                confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), image_path, run_id, mock=mock, tv_noconfirm=tv_noconfirm)
+                print(f"  Attempt {attempt+1} confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
+                if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
+                    det["quad"] = offset_quad
+                    print(f"  Offset quad: {det['quad']}")
+                    det["confirm_confidence"] = confirmation["tv_confidence"]
+                    confirmed.append(det)
+                    return confirmed  # success, no need to retry
+
+        print(f"  Attempt {attempt+1} failed, retrying...")
+
+    if not confirmed:
+        print(f"  No confirmed quad after {MAX_RETRIES} attempts for {image_path}")
 
     return confirmed

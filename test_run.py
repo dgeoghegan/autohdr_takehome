@@ -63,25 +63,23 @@ def main():
     run_id = run_summary.get("run_id", "")
 
     ground_truth_successes = 0
-    if args.compare:
-        result_log_path = Path("logs/image_results.jsonl")
-        if result_log_path.exists():
-            with open(result_log_path) as f:
-                for line in f:
-                    record = json.loads(line)
-                    if record.get("run_id") != run_id:
-                        continue
-                    if record.get("status") != "success":
-                        continue
-                    reason = record.get("reason", "")
-                    if reason.startswith("iou="):
-                        try:
-                            score = float(reason.split("=")[1])
-                            if score >= IOU_THRESHOLD:
-                                ground_truth_successes += 1
-                        except ValueError:
-                            pass
-
+    result_log_path = Path("logs/image_results.jsonl")
+    if result_log_path.exists():
+        with open(result_log_path) as f:
+            for line in f:
+                record = json.loads(line)
+                if record.get("run_id") != run_id:
+                    continue
+                if record.get("status") != "success":
+                    continue
+                reason = record.get("reason", "")
+                if reason.startswith("iou="):
+                    try:
+                        score = float(reason.split("=")[1])
+                        if score >= IOU_THRESHOLD:
+                            ground_truth_successes += 1
+                    except ValueError:
+                        pass
     if not args.no_log:
         # write test log
         Path(TEST_LOG).parent.mkdir(parents=True, exist_ok=True)
