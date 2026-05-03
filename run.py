@@ -4,13 +4,14 @@ import json
 from ingestor import discover_images
 from gemini import GeminiError
 from detector import detect_tvs
-from processor import replace_screen, save_result
-from evaluator import evaluate_result_from_image
+from processor import replace_screen, save_result, quad_to_bbox
+from evaluator import evaluate_result_from_image, iou
 from logger import RunStats, log_image_result
 from datetime import datetime, UTC
 from pathlib import Path
 
 REPLACEMENT_PATH = "photos/replacement/autohdr.beach.jpeg"
+GROUND_TRUTH_PATH = "photos/ground_truth.json"
 
 def main():
     parser = argparse.ArgumentParser(description="AutoHDR TV screen replacement pipeline")
@@ -18,6 +19,7 @@ def main():
     parser.add_argument("--output_dir", required=True, help="Directory for output images")
     parser.add_argument("--mock", action="store_true", help="Use mock Gemini instead of real API")
     parser.add_argument("--tv_noconfirm", action="store_true", help="Only with --mock. Force Gemini TV confirmatin to return no")
+    parser.add_argument("--compare", action="store_true", help="Compare results against ground truth bbox using IoU")
     args = parser.parse_args()
 
     image_paths = discover_images(args.input_dir)
@@ -26,6 +28,14 @@ def main():
     stats.total_images = len(image_paths)
     stats.run_id = run_id
     print(f"Found {len(image_paths)} images")
+
+    ground_truth = {}
+    if args.compare:
+        gt_path = Path(GROUND_TRUTH_PATH)
+        if gt_path.exists():
+            ground_truth = json.loads(gt_path.read_text())
+        else:
+            print("Warning: --compare set but ground_truth.json not found")    
 
     for image_path in image_paths:
         print(f"\nProcessing {image_path}")
@@ -54,7 +64,19 @@ def main():
             if evaluation["success"]:
                 save_result(replaced_img, out_path)
                 stats.successes += 1
-                log_image_result(image_path, "success", run_id)
+    
+                quad_bbox = quad_to_bbox(det["quad"])
+    
+                if args.compare:
+                    gt = ground_truth.get(Path(image_path).name)
+                    if gt:
+                        score = iou(quad_bbox, gt)
+                        print(f"  IoU: {score:.2f}") 
+                        log_image_result(image_path, "success", run_id, f"iou={score:.2f}")
+                    else:
+                        log_image_result(image_path, "success", run_id)
+                else:
+                    log_image_result(image_path, "success", run_id)
             else:
                 print("   Evaluation failed, discarding output")
                 stats.evaluation_failed += 1

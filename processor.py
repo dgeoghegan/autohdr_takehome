@@ -127,3 +127,8 @@ def sort_quad_points(quad: list) -> list:
     top = sorted(pts[:2], key=lambda p: p[0])   # top two, sort by x
     bottom = sorted(pts[2:], key=lambda p: p[0], reverse=True)  # bottom two, right to left
     return [top[0], top[1], bottom[0], bottom[1]]
+
+def quad_to_bbox(quad: list) -> dict:
+    pts = np.array(quad, dtype=np.int32)
+    x, y, w, h = cv2.boundingRect(pts)
+    return {"x1": x, "y1": y, "x2": x + w, "y2": y + h}

@@ -26,6 +26,7 @@ class RunStats:
     def log_summary(self) -> None:
         summary = {
             "timestamp": datetime.now(UTC).isoformat(),
+            "run_id": self.run_id,
             "runtime_seconds": round(self.elapsed(), 2),
             "total_images": self.total_images,
             "successes": self.successes,
