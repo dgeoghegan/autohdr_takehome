@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPLACEMENT_PATH = "photos/replacement/autohdr.beach.jpeg"
 GROUND_TRUTH_PATH = "photos/ground_truth.json"
+MAX_EVAL_RETRIES = 3
 
 def main():
     parser = argparse.ArgumentParser(description="AutoHDR TV screen replacement pipeline")
@@ -39,35 +40,36 @@ def main():
 
     for image_path in image_paths:
         print(f"\nProcessing {image_path}")
-        try:
-            detections = detect_tvs(image_path, run_id, mock=args.mock, tv_noconfirm=args.tv_noconfirm)
-        except GeminiError as e:
-            print(f"  Gemini error: {e}")
-            stats.gemini_error += 1
-            log_image_result(image_path, "gemini_error", run_id, str(e))
-            continue
 
-        if not detections:
-            print("  No confirmed TVs detected")
-            stats.no_tv_detected += 1
-            log_image_result(image_path, "no_tv_detected", run_id)
-            continue
-
-        for det in detections:
-            if not det.get("quad"):
-                stats.cv2_no_quad += 1
-                log_image_result(image_path, "cv2_no_quad", run_id)
+        saved = False
+        for eval_attempt in range(MAX_EVAL_RETRIES):
+            try:
+                detections = detect_tvs(image_path, run_id, mock=args.mock, tv_noconfirm=args.tv_noconfirm)
+            except GeminiError as e:
+                print(f"  Gemini error: {e}")
+                stats.gemini_error += 1
+                log_image_result(image_path, "gemini_error", run_id, str(e))
                 continue
-
-            replaced_img, out_path = replace_screen(image_path, det["quad"], REPLACEMENT_PATH, args.output_dir)
-            evaluation = evaluate_result_from_image(replaced_img, image_path, run_id, mock=args.mock)
-            if evaluation["success"]:
-                save_result(replaced_img, out_path)
-                stats.successes += 1
     
-                quad_bbox = quad_to_bbox(det["quad"])
+            if not detections:
+                print("  No confirmed TVs detected")
+                stats.no_tv_detected += 1
+                log_image_result(image_path, "no_tv_detected", run_id)
+                continue
     
-                if args.compare:
+            for det in detections:
+                if not det.get("quad"):
+                    stats.cv2_no_quad += 1
+                    log_image_result(image_path, "cv2_no_quad", run_id)
+                    continue
+    
+                replaced_img, out_path = replace_screen(image_path, det["quad"], REPLACEMENT_PATH, args.output_dir)
+                evaluation = evaluate_result_from_image(replaced_img, image_path, run_id, mock=args.mock)
+                if evaluation["success"]:
+                    save_result(replaced_img, out_path)
+                    stats.successes += 1
+                    quad_bbox = quad_to_bbox(det["quad"])
+        
                     gt = ground_truth.get(Path(image_path).name)
                     if gt:
                         score = iou(quad_bbox, gt)
@@ -75,12 +77,18 @@ def main():
                         log_image_result(image_path, "success", run_id, f"iou={score:.2f}")
                     else:
                         log_image_result(image_path, "success", run_id)
+                    saved = True
+                    break
                 else:
-                    log_image_result(image_path, "success", run_id)
-            else:
-                print("   Evaluation failed, discarding output")
-                stats.evaluation_failed += 1
-                log_image_result(image_path, "evaluation_failed", run_id, evaluation["reasoning"])
+                    print("   Evaluation failed, discarding output")
+                    log_image_result(image_path, "evaluation_failed", run_id, evaluation["reasoning"])
+            if saved:
+                break
+        evaluation = {}
+        if not saved and stats.evaluation_failed > 0:
+            stats.evaluation_failed += 1
+            log_image_result(image_path, "evaluation_failed", run_id, evaluation["reasoning"])
+
 
     token_log_path = Path("logs/token_usage.jsonl")
     if token_log_path.exists():

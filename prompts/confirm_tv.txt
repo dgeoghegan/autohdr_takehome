@@ -20,3 +20,5 @@ Rules:
 - A fireplace, window, mirror, painting, or appliance display is NOT a television
 - tv_confidence reflects how certain you are that the highlighted region IS a television screen, regardless of your yes/no answer
 - If the highlighted region is ambiguous, set is_tv to false and explain why
+- The entire television screen must be visible within the pink highlight. If the TV screen continues beyond any edge of the highlighted region, answer false. A partial TV screen is not acceptable.
+- The pink-highlighted region must show the front-facing screen surface of a television. A bezel, frame, top, side, or back of a TV is not acceptable. If you cannot see the actual display surface within the highlighted region, answer false.
