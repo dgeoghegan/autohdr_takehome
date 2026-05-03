@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from gemini import ask_gemini_vision
-from logger import log_token_usage
+from logger import log_token_comment
 import cv2
 from processor import save_crop, find_screen_quad, draw_quad_highlight
 from mock_gemini import mock_gemini_vision, mock_confirm_tv, FIXTURE_TV_SINGLE, FIXTURE_CONFIRM_TV_YES, FIXTURE_CONFIRM_TV_NO, MockGenerateContentResponse
@@ -30,7 +30,7 @@ def _pad_bbox(bbox: dict, padding: int, img_w: int, img_h: int) -> dict:
     }
 
 
-def confirm_tv(highlighted_bytes: bytes, reasoning: str, mock: bool = False, tv_noconfirm: bool = False) -> dict:
+def confirm_tv(highlighted_bytes: bytes, reasoning: str, image_path: str, run_id: str = "", mock: bool = False, tv_noconfirm: bool = False) -> dict:
     template = Path(CONFIRM_PROMPT_PATH).read_text()
     prompt = template.replace("{REASONING}", reasoning)
 
@@ -39,12 +39,12 @@ def confirm_tv(highlighted_bytes: bytes, reasoning: str, mock: bool = False, tv_
         raw, usage = mock_confirm_tv(prompt, highlighted_bytes, fixture)
     else:
         raw, usage = ask_gemini_vision(prompt, highlighted_bytes)
+        log_token_comment(f"confirm_tv:{Path(image_path).name}", usage, run_id)
     
-    # note: confirm calls don't log tokens yet — add later
     return json.loads(raw)
 
 
-def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE, tv_noconfirm: bool = False) -> list[dict]:
+def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE, tv_noconfirm: bool = False) -> list[dict]:
     img = cv2.imread(image_path)
     h, w = img.shape[:2]
     _, buf = cv2.imencode(".jpg", img)
@@ -56,9 +56,7 @@ def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContent
         raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
     else:
         raw, usage = ask_gemini_vision(prompt, image_bytes)
-
-    if not mock:
-        log_token_usage(image_path, usage)
+        log_token_comment(f"detect_tv:{Path(image_path).name}", usage, run_id)
 
     result = json.loads(raw)
 
@@ -77,17 +75,16 @@ def detect_tvs(image_path: str, mock: bool = False, fixture: MockGenerateContent
 
         quads = find_screen_quad(crop_path)
         for quad_index, quad in enumerate(quads):
-            _, highlighted_bytes = draw_quad_highlight(crop_path, quad, quad_index)
-            confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), mock=mock, tv_noconfirm=tv_noconfirm)
+            offset_quad = [[pt[0] + det["bbox"]["x1"], pt[1] + det["bbox"]["y1"]] for pt in quad.reshape(4, 2).tolist()]
+            _, highlighted_bytes = draw_quad_highlight(image_path, offset_quad)
+            confirmation = confirm_tv(highlighted_bytes, det.get("reasoning", ""), image_path, run_id, mock=mock, tv_noconfirm=tv_noconfirm)
             print(f"  Confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
             if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
-                bbox = det["bbox"]
-                offset_quad = [[pt[0] + bbox["x1"], pt[1] + bbox["y1"]] for pt in quad.reshape(4, 2).tolist()]
                 det["quad"] = offset_quad
                 print(f"  Offset quad: {det['quad']}")
                 det["confirm_confidence"] = confirmation["tv_confidence"]
                 confirmed.append(det)
-                break  # stop at first confirmed quad
+                break
 
         if not confirmed or confirmed[-1].get("bbox") != det.get("bbox"):
             print(f"  No confirmed quad for detection in {image_path}")

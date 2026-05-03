@@ -73,6 +73,7 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
     img = cv2.imread(image_path)
     replacement = cv2.imread(replacement_path)
 
+    quad = sort_quad_points(quad)
     dst_pts = np.array(quad, dtype=np.float32)
 
     x, y, w, h = cv2.boundingRect(dst_pts.astype(np.int32))
@@ -96,21 +97,33 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
     base = Path(image_path).stem
     out_path = Path(out_dir) / f"{base}_replaced.jpg"
     Path(out_dir).mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), img)
-    print(f"  Saved {out_path}")
-    return str(out_path)
 
-def draw_quad_highlight(crop_path: str, quad, quad_index: int) -> tuple[str, bytes]:
-    img = cv2.imread(crop_path)
+    return img, out_path
+
+def draw_quad_highlight(image_path: str, quad) -> tuple[str, bytes]:
+    img = cv2.imread(image_path)
     out = img.copy()
-    cv2.drawContours(out, [quad], -1, (180, 105, 255), 3)
+    cv2.drawContours(out, [np.array(quad)], -1, (180, 105, 255), 3)
 
-    stem = Path(crop_path).stem
-    parent = Path(crop_path).parent
-    out_path = str(parent / f"{stem}_highlighted_{quad_index}.jpg")
+    stem = Path(image_path).stem
+    out_dir = Path(CROP_DIR) / stem
+    out_dir.mkdir(parents = True, exist_ok = True)
+    out_path = str(out_dir / f"{stem}_highlighted.jpg")
     cv2.imwrite(out_path, out)
 
     _, buf = cv2.imencode(".jpg", out)
     image_bytes = buf.tobytes()
 
     return out_path, image_bytes
+
+def save_result(img, out_path: str) -> str:
+    cv2.imwrite(out_path, img)
+    print(f"  Saved {out_path}")
+    return out_path
+
+def sort_quad_points(quad: list) -> list:
+    """Sort quad points into [top-left, top-right, bottom-right, bottom-left] order."""
+    pts = sorted(quad, key=lambda p: p[1])  # sort by y
+    top = sorted(pts[:2], key=lambda p: p[0])   # top two, sort by x
+    bottom = sorted(pts[2:], key=lambda p: p[0], reverse=True)  # bottom two, right to left
+    return [top[0], top[1], bottom[0], bottom[1]]
