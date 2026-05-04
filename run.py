@@ -78,6 +78,9 @@ def process_image(image_path, run_id, args, ground_truth, stats, stats_lock):
             saved = True
             break
 
+        if saved:
+            break
+
     if not saved and args.evaluate:
         with stats_lock:
             stats.evaluation_failed += 1

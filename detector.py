@@ -22,6 +22,7 @@ YOLO_TV_CLASS = 62
 YOLO_CONFIDENCE = 0.3
 _yolo_model = None
 
+
 def _descale_bbox(box_2d: list, width: int, height: int) -> dict:
     """Convert Gemini's [ymin, xmin, ymax, xmax] normalized 0-1000 to pixel coords."""
     ymin, xmin, ymax, xmax = box_2d
@@ -61,12 +62,14 @@ def _unproject_quad(quad_norm: list, bbox: dict) -> list:
         for pt in quad_norm
     ]
 
+
 def _unproject_crop_quad(crop_quad: list, bbox: dict) -> list:
     """Convert cv2 crop-space pixel coords to full image pixel coords."""
     return [
         [bbox["x1"] + pt[0], bbox["y1"] + pt[1]]
         for pt in crop_quad
     ]
+
 
 def confirm_tv(highlighted_bytes: bytes, reasoning: str, image_path: str, run_id: str = "", mock: bool = False, tv_noconfirm: bool = False) -> dict:
     template = Path(CONFIRM_PROMPT_PATH).read_text()
@@ -81,11 +84,13 @@ def confirm_tv(highlighted_bytes: bytes, reasoning: str, image_path: str, run_id
 
     return json.loads(raw)
 
+
 def _get_yolo():
     global _yolo_model
     if _yolo_model is None:
         _yolo_model = YOLO(YOLO_MODEL_PATH)
     return _yolo_model
+
 
 def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE, tv_noconfirm: bool = False) -> list[dict]:
     img = cv2.imread(image_path)
@@ -97,7 +102,7 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
 
     confirmed = []
 
-    # Pass 1: get bboxes
+    # Pass 1: get bboxes via YOLO (or Gemini in mock mode)
     if mock:
         prompt = Path(DETECT_PROMPT_PATH).read_text()
         raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
@@ -112,6 +117,7 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                 detections.append({"bbox": bbox, "reasoning": det.get("reasoning", ""), "tv_confidence": det.get("tv_confidence", 0.9)})
             except (ValueError, KeyError) as e:
                 print(f"  Skipping mock detection: {e}")
+        yolo_results = None
     else:
         yolo = _get_yolo()
         yolo_results = yolo(image_path, verbose=False)
@@ -129,22 +135,40 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
             bbox = _pad_bbox(bbox, padding, w, h)
             detections.append({"bbox": bbox, "reasoning": f"YOLO conf={conf:.2f}", "tv_confidence": conf})
 
-    # save YOLO debug image regardless of detections
-    if SAVE_CROPS:
-        debug_img = img.copy()
-        for box in yolo_results[0].boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            conf = float(box.conf)
-            cls = int(box.cls)
-            color = (0, 255, 0) if cls == YOLO_TV_CLASS else (128, 128, 128)
-            cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(debug_img, f"cls={cls} {conf:.2f}", (x1, y1 - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        yolo_debug_dir = Path("photos/crops") / Path(image_path).stem
-        yolo_debug_dir.mkdir(parents=True, exist_ok=True)
-        out_path = str(yolo_debug_dir / f"{Path(image_path).stem}_yolo_debug.jpg")
-        cv2.imwrite(out_path, debug_img)
-        print(f"  YOLO debug saved: {out_path}")
+        # Save YOLO debug image
+        if SAVE_CROPS:
+            debug_img = img.copy()
+            for box in yolo_results[0].boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                conf = float(box.conf)
+                cls = int(box.cls)
+                color = (0, 255, 0) if cls == YOLO_TV_CLASS else (128, 128, 128)
+                cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(debug_img, f"cls={cls} {conf:.2f}", (x1, y1 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            yolo_debug_dir = Path("photos/crops") / Path(image_path).stem
+            yolo_debug_dir.mkdir(parents=True, exist_ok=True)
+            out_path = str(yolo_debug_dir / f"{Path(image_path).stem}_yolo_debug.jpg")
+            cv2.imwrite(out_path, debug_img)
+            print(f"  YOLO debug saved: {out_path}")
+
+        # Gemini fallback if YOLO found nothing
+        if not detections:
+            print(f"  No TV detected by YOLO in {image_path}, trying Gemini bbox fallback...")
+            prompt = Path(DETECT_PROMPT_PATH).read_text()
+            raw, usage = ask_gemini_vision(prompt, image_bytes)
+            log_token_comment(f"detect_tv_fallback:{Path(image_path).name}", usage, run_id)
+            try:
+                result = json.loads(raw)
+                for det in result.get("detections", []):
+                    if det.get("tv_confidence", 0) < 0.7:
+                        continue
+                    bbox = _descale_bbox(det["box_2d"], w, h)
+                    bbox = _pad_bbox(bbox, BBOX_PADDING_PIX, w, h)
+                    detections.append({"bbox": bbox, "reasoning": det.get("reasoning", ""), "tv_confidence": det.get("tv_confidence", 0.9)})
+                    print(f"  Gemini bbox fallback: {bbox}")
+            except (ValueError, KeyError) as e:
+                print(f"  Gemini bbox fallback parse error: {e}")
 
     if not detections:
         print(f"  No TV detected in {image_path}")
@@ -157,115 +181,54 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
 
             crop_img, crop_bytes = _crop_bytes(img, bbox)
 
-            # save YOLO debug image regardless of detections
-            if SAVE_CROPS:
-                debug_img = img.copy()
-                for box in yolo_results[0].boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    conf = float(box.conf)
-                    cls = int(box.cls)
-                    color = (0, 255, 0) if cls == YOLO_TV_CLASS else (128, 128, 128)
-                    cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(debug_img, f"cls={cls} {conf:.2f}", (x1, y1 - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-                yolo_debug_dir = Path("photos/crops") / Path(image_path).stem
-                yolo_debug_dir.mkdir(parents=True, exist_ok=True)
-                out_path = str(yolo_debug_dir / f"{Path(image_path).stem}_yolo_debug.jpg")
-                cv2.imwrite(out_path, debug_img)
-                print(f"  YOLO debug saved: {out_path}")
+            # Always save crop — needed for cv2
+            crop_debug_dir = Path("photos/crops") / Path(image_path).stem
+            crop_debug_dir.mkdir(parents=True, exist_ok=True)
+            crop_path = str(crop_debug_dir / f"{Path(image_path).stem}_p1_attempt{attempt}.jpg")
+            success = cv2.imwrite(crop_path, crop_img)
+            print(f"  Crop saved: {success} -> {crop_path}")
 
-            if not detections:
-                print(f"  No TV detected in {image_path}")
-                return confirmed
+            # Classify crop
+            classify_prompt = Path(CLASSIFY_PROMPT_PATH).read_text()
+            if mock:
+                raw_classify, _ = mock_gemini_vision(classify_prompt, crop_bytes, FIXTURE_CLASSIFY_STANDARD)
+            else:
+                raw_classify, usage_classify = ask_gemini_vision(classify_prompt, crop_bytes)
+                log_token_comment(f"classify_tv:{Path(image_path).name}", usage_classify, run_id)
 
-            for attempt in range(MAX_RETRIES):
-                for det in detections:
-                    bbox = det["bbox"]
+            try:
+                classify_result = json.loads(raw_classify)
+            except (ValueError, TypeError) as e:
+                print(f"  Classify parse error: {e}")
+                continue
 
-                    crop_img, crop_bytes = _crop_bytes(img, bbox)
+            if not classify_result.get("has_tv"):
+                print(f"  Classifier says no TV in crop: {classify_result.get('reasoning')}")
+                continue
 
-                    # always save crop — needed for cv2
-                    crop_debug_dir = Path("photos/crops") / Path(image_path).stem
-                    crop_debug_dir.mkdir(parents=True, exist_ok=True)
-                    crop_path = str(crop_debug_dir / f"{Path(image_path).stem}_p1_attempt{attempt}.jpg")
-                    success = cv2.imwrite(crop_path, crop_img)
-                    print(f"  Crop saved: {success} -> {crop_path}")
+            preset_name = classify_result.get("preset", "standard")
+            if preset_name not in CV2_PRESETS:
+                print(f"  Unknown preset '{preset_name}', falling back to standard")
+                preset_name = "standard"
+            print(f"  Preset: {preset_name} — {classify_result.get('reasoning')}")
 
-                    # Classify crop
-                    classify_prompt = Path(CLASSIFY_PROMPT_PATH).read_text()
-                    if mock:
-                        raw_classify, _ = mock_gemini_vision(classify_prompt, crop_bytes, FIXTURE_CLASSIFY_STANDARD)
-                    else:
-                        raw_classify, usage_classify = ask_gemini_vision(classify_prompt, crop_bytes)
-                        log_token_comment(f"classify_tv:{Path(image_path).name}", usage_classify, run_id)
+            # cv2 quad detection with preset
+            params = CV2_PRESETS[preset_name]
+            quads = find_screen_quad(crop_path, params)
 
-                    try:
-                        classify_result = json.loads(raw_classify)
-                    except (ValueError, TypeError) as e:
-                        print(f"  Classify parse error: {e}")
+            pixel_quad = None
+            if quads:
+                for candidate_quad in quads:
+                    area = cv2.contourArea(candidate_quad)
+                    min_area = (bbox["x2"] - bbox["x1"]) * (bbox["y2"] - bbox["y1"]) * 0.1
+                    if area < min_area:
+                        print(f"  cv2 candidate too small (area={area:.0f}), skipping")
                         continue
 
-                    if not classify_result.get("has_tv"):
-                        print(f"  Classifier says no TV in crop: {classify_result.get('reasoning')}")
-                        continue
-
-                    preset_name = classify_result.get("preset", "standard")
-                    if preset_name not in CV2_PRESETS:
-                        print(f"  Unknown preset '{preset_name}', falling back to standard")
-                        preset_name = "standard"
-                    print(f"  Preset: {preset_name} — {classify_result.get('reasoning')}")
-
-                    # cv2 quad detection with preset
-                    params = CV2_PRESETS[preset_name]
-                    quads = find_screen_quad(crop_path, params)
-
-                    pixel_quad = None
-                    if quads:
-                        for candidate_quad in quads:
-                            area = cv2.contourArea(candidate_quad)
-                            min_area = (bbox["x2"] - bbox["x1"]) * (bbox["y2"] - bbox["y1"]) * 0.1
-                            if area < min_area:
-                                print(f"  cv2 candidate too small (area={area:.0f}), skipping")
-                                continue
-                    
-                            crop_quad = candidate_quad.reshape(4, 2).tolist()
-                            print(f"  crop_quad raw: {crop_quad}")
-                            pixel_quad = _unproject_crop_quad(crop_quad, bbox)
-                            print(f"  cv2 quad unprojected: {pixel_quad}")
-                    
-                            highlight_path, highlighted_bytes = draw_quad_highlight(image_path, pixel_quad, attempt)
-                            print(f"  Highlight saved: {highlight_path}")
-                            confirmation = confirm_tv(highlighted_bytes, classify_result.get("reasoning", ""), image_path, run_id, mock=mock, tv_noconfirm=tv_noconfirm)
-                            print(f"  Attempt {attempt+1} confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
-                    
-                            if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
-                                det["quad"] = pixel_quad
-                                print(f"  Quad: {det['quad']}")
-                                det["confirm_confidence"] = confirmation["tv_confidence"]
-                                confirmed.append(det)
-                                return confirmed
-                    
-                            print("  cv2 candidate rejected by confirm, trying next")
-                            pixel_quad = None  # reset after rejection
-                    if pixel_quad is None:
-                        print("  cv2 found no quad, falling back to Gemini")
-                        if mock:
-                            raw2, usage2 = mock_gemini_vision(refine_prompt, crop_bytes, FIXTURE_TV_QUAD)
-                        else:
-                            raw2, usage2 = ask_gemini_vision(refine_prompt, crop_bytes)
-                            log_token_comment(f"refine_tv:{Path(image_path).name}", usage2, run_id)
-
-                        try:
-                            refine_result = json.loads(raw2)
-                            quad_norm = refine_result.get("quad_points")
-                            if not quad_norm or len(quad_norm) != 4:
-                                print(f"  Bad quad_points from Gemini fallback: {quad_norm}")
-                                continue
-                            pixel_quad = _unproject_quad(quad_norm, bbox)
-                            print(f"  Gemini fallback quad: {pixel_quad}")
-                        except (ValueError, KeyError, TypeError) as e:
-                            print(f"  Gemini fallback parse error: {e}")
-                            continue
+                    crop_quad = candidate_quad.reshape(4, 2).tolist()
+                    print(f"  crop_quad raw: {crop_quad}")
+                    pixel_quad = _unproject_crop_quad(crop_quad, bbox)
+                    print(f"  cv2 quad unprojected: {pixel_quad}")
 
                     highlight_path, highlighted_bytes = draw_quad_highlight(image_path, pixel_quad, attempt)
                     print(f"  Highlight saved: {highlight_path}")
@@ -279,7 +242,42 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                         confirmed.append(det)
                         return confirmed
 
-                print(f"  Attempt {attempt+1} failed, retrying...")
+                    print("  cv2 candidate rejected by confirm, trying next")
+                    pixel_quad = None  # reset after rejection
+
+            if pixel_quad is None:
+                print("  cv2 found no quad, falling back to Gemini")
+                if mock:
+                    raw2, usage2 = mock_gemini_vision(refine_prompt, crop_bytes, FIXTURE_TV_QUAD)
+                else:
+                    raw2, usage2 = ask_gemini_vision(refine_prompt, crop_bytes)
+                    log_token_comment(f"refine_tv:{Path(image_path).name}", usage2, run_id)
+
+                try:
+                    refine_result = json.loads(raw2)
+                    quad_norm = refine_result.get("quad_points")
+                    if not quad_norm or len(quad_norm) != 4:
+                        print(f"  Bad quad_points from Gemini fallback: {quad_norm}")
+                        continue
+                    pixel_quad = _unproject_quad(quad_norm, bbox)
+                    print(f"  Gemini fallback quad: {pixel_quad}")
+                except (ValueError, KeyError, TypeError) as e:
+                    print(f"  Gemini fallback parse error: {e}")
+                    continue
+
+            highlight_path, highlighted_bytes = draw_quad_highlight(image_path, pixel_quad, attempt)
+            print(f"  Highlight saved: {highlight_path}")
+            confirmation = confirm_tv(highlighted_bytes, classify_result.get("reasoning", ""), image_path, run_id, mock=mock, tv_noconfirm=tv_noconfirm)
+            print(f"  Attempt {attempt+1} confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
+
+            if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
+                det["quad"] = pixel_quad
+                print(f"  Quad: {det['quad']}")
+                det["confirm_confidence"] = confirmation["tv_confidence"]
+                confirmed.append(det)
+                return confirmed
+
+        print(f"  Attempt {attempt+1} failed, retrying...")
 
     if not confirmed:
         print(f"  No confirmed quad after {MAX_RETRIES} attempts for {image_path}")
