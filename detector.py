@@ -122,6 +122,23 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
             bbox = _pad_bbox(bbox, padding, w, h)
             detections.append({"bbox": bbox, "reasoning": f"YOLO conf={conf:.2f}", "tv_confidence": conf})
 
+    # save YOLO debug image regardless of detections
+    if SAVE_CROPS:
+        debug_img = img.copy()
+        for box in yolo_results[0].boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = float(box.conf)
+            cls = int(box.cls)
+            color = (0, 255, 0) if cls == YOLO_TV_CLASS else (128, 128, 128)
+            cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(debug_img, f"cls={cls} {conf:.2f}", (x1, y1 - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        yolo_debug_dir = Path("photos/crops") / Path(image_path).stem
+        yolo_debug_dir.mkdir(parents=True, exist_ok=True)
+        out_path = str(yolo_debug_dir / f"{Path(image_path).stem}_yolo_debug.jpg")
+        cv2.imwrite(out_path, debug_img)
+        print(f"  YOLO debug saved: {out_path}")
+
     if not detections:
         print(f"  No TV detected in {image_path}")
         return confirmed

@@ -33,10 +33,16 @@ def process_image(image_path, run_id, args, ground_truth, stats, stats_lock):
             break
 
         if not detections:
-            print(f"  [{Path(image_path).name}] No confirmed TVs detected")
-            with stats_lock:
-                stats.no_tv_detected += 1
-            log_image_result(image_path, "no_tv_detected", run_id)
+            gt = ground_truth.get(Path(image_path).name)
+            if gt and gt.get("no_tv"):
+                log_image_result(image_path, "success", run_id, "correctly_no_tv")
+                with stats_lock:
+                    stats.successes += 1
+            else:
+                print(f"  [{Path(image_path).name}] No confirmed TVs detected")
+                with stats_lock:
+                    stats.no_tv_detected += 1
+                log_image_result(image_path, "no_tv_detected", run_id)
             break
 
         for det in detections:
@@ -56,13 +62,14 @@ def process_image(image_path, run_id, args, ground_truth, stats, stats_lock):
 
                 quad_bbox = quad_to_bbox(det["quad"])
                 gt = ground_truth.get(Path(image_path).name)
-                if gt:
+                if gt and gt.get("no_tv"):
+                    # pipeline found a TV but there isn't one — false positive
+                    log_image_result(image_path, "false_positive", run_id)
+                else:
                     gt_bbox = gt.get("bbox") if "bbox" in gt else gt
                     score = iou(quad_bbox, gt_bbox)
                     print(f"  [{Path(image_path).name}] IoU: {score:.2f}")
                     log_image_result(image_path, "success", run_id, f"iou={score:.2f}")
-                else:
-                    log_image_result(image_path, "success", run_id)
                 saved = True
                 break
             else:

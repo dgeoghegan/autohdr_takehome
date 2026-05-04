@@ -82,6 +82,8 @@ def main():
                             ground_truth_successes += 1
                     except ValueError:
                         pass
+                if reason == "correctly_no_tv":
+                    ground_truth_successes += 1
     
     true_success_rate = round(ground_truth_successes / total * 100, 1) if total else 0
     avg_iou = round(sum(iou_scores) / len(iou_scores), 2) if iou_scores else 0
