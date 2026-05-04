@@ -56,13 +56,14 @@ def main():
     if summary_path.exists():
         last_line = summary_path.read_text().strip().splitlines()[-1]
         run_summary = json.loads(last_line)
-
     total = run_summary.get("total_images", 0)
     successes = run_summary.get("successes", 0)
     success_pct = round(successes / total * 100, 1) if total else 0
     run_id = run_summary.get("run_id", "")
-
+    
     ground_truth_successes = 0
+    iou_scores = []
+    
     result_log_path = Path("logs/image_results.jsonl")
     if result_log_path.exists():
         with open(result_log_path) as f:
@@ -76,10 +77,14 @@ def main():
                 if reason.startswith("iou="):
                     try:
                         score = float(reason.split("=")[1])
+                        iou_scores.append(score)
                         if score >= IOU_THRESHOLD:
                             ground_truth_successes += 1
                     except ValueError:
                         pass
+    
+    true_success_rate = round(ground_truth_successes / total * 100, 1) if total else 0
+    avg_iou = round(sum(iou_scores) / len(iou_scores), 2) if iou_scores else 0
     if not args.no_log:
         # write test log
         Path(TEST_LOG).parent.mkdir(parents=True, exist_ok=True)
@@ -91,6 +96,9 @@ def main():
             "total_images": total,
             "successes": successes,
             "success_pct": success_pct,
+            "true_success_rate": true_success_rate,
+            "avg_iou": avg_iou,
+            "iou_scores": iou_scores,
             "total_tokens": run_summary.get("total_tokens", 0),
             "runtime_seconds": run_summary.get("runtime_seconds", 0),
             "no_tv_detected": run_summary.get("no_tv_detected", 0),
@@ -104,8 +112,8 @@ def main():
         with open(TEST_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")
 
-    gt_str = f" — gt_successes={ground_truth_successes}/{successes}"
-    print(f"\nResults: {successes}/{total} ({success_pct}%){gt_str} — {run_summary.get('total_tokens', 0)} tokens — {run_summary.get('runtime_seconds', 0)}s")
+    true_success_rate = round(ground_truth_successes / total * 100, 1) if total else 0
+    print(f"\nResults: {successes}/{total} ({success_pct}%) true={true_success_rate}% avg_iou={avg_iou} gt_successes={ground_truth_successes}/{total} — ...")
 
 if __name__ == "__main__":
     main()

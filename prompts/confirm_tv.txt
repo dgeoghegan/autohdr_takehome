@@ -22,3 +22,4 @@ Rules:
 - If the highlighted region is ambiguous, set is_tv to false and explain why
 - The entire television screen must be visible within the pink highlight. If the TV screen continues beyond any edge of the highlighted region, answer false. A partial TV screen is not acceptable.
 - The pink-highlighted region must show the front-facing screen surface of a television. A bezel, frame, top, side, or back of a TV is not acceptable. If you cannot see the actual display surface within the highlighted region, answer false.
+- The pink-highlighted region must contain the complete TV — if any part of the screen extends outside the highlight, answer false even if the visible portion looks like a TV

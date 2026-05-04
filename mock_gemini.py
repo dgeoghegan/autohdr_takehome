@@ -110,6 +110,14 @@ FIXTURE_EVALUATE_FAILURE = MockGenerateContentResponse(
     })
 )
 
+FIXTURE_TV_QUAD = MockGenerateContentResponse(
+    text=json.dumps({
+        "quad_points": [[80, 60], [80, 940], [920, 940], [920, 60]],
+        "confidence": 0.91,
+        "reasoning": "Flat panel screen clearly visible, corners identified at bezel inner edge"
+    })
+)
+
 # --- Mock client ---
 
 def mock_gemini_vision(prompt: str, image_bytes: bytes, fixture: MockGenerateContentResponse) -> tuple[str, MockUsageMetadata]:

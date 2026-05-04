@@ -57,7 +57,8 @@ def process_image(image_path, run_id, args, ground_truth, stats, stats_lock):
                 quad_bbox = quad_to_bbox(det["quad"])
                 gt = ground_truth.get(Path(image_path).name)
                 if gt:
-                    score = iou(quad_bbox, gt)
+                    gt_bbox = gt.get("bbox") if "bbox" in gt else gt
+                    score = iou(quad_bbox, gt_bbox)
                     print(f"  [{Path(image_path).name}] IoU: {score:.2f}")
                     log_image_result(image_path, "success", run_id, f"iou={score:.2f}")
                 else:
