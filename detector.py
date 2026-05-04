@@ -14,7 +14,7 @@ REFINE_PROMPT_PATH = "prompts/id_tv_2.txt"
 CONFIRM_PROMPT_PATH = "prompts/confirm_tv.txt"
 CLASSIFY_PROMPT_PATH = "prompts/classify_crop.txt"
 CONFIRM_THRESHOLD = 0.7
-BBOX_PADDING_PIX = 30
+BBOX_PADDING_PIX = 0
 MAX_RETRIES = 5
 SAVE_CROPS = True
 YOLO_MODEL_PATH = "yolov8l.pt"
@@ -61,6 +61,12 @@ def _unproject_quad(quad_norm: list, bbox: dict) -> list:
         for pt in quad_norm
     ]
 
+def _unproject_crop_quad(crop_quad: list, bbox: dict) -> list:
+    """Convert cv2 crop-space pixel coords to full image pixel coords."""
+    return [
+        [bbox["x1"] + pt[0], bbox["y1"] + pt[1]]
+        for pt in crop_quad
+    ]
 
 def confirm_tv(highlighted_bytes: bytes, reasoning: str, image_path: str, run_id: str = "", mock: bool = False, tv_noconfirm: bool = False) -> dict:
     template = Path(CONFIRM_PROMPT_PATH).read_text()
@@ -214,10 +220,34 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                     quads = find_screen_quad(crop_path, params)
 
                     if quads:
-                        best_quad = quads[0]
-                        crop_quad = best_quad.reshape(4, 2).tolist()
-                        pixel_quad = _unproject_quad(crop_quad, bbox)
-                        print(f"  cv2 quad found, unprojected: {pixel_quad}")
+                        quad_confirmed = False
+                        for candidate_quad in quads:
+                            area = cv2.contourArea(candidate_quad)
+                            min_area = (bbox["x2"] - bbox["x1"]) * (bbox["y2"] - bbox["y1"]) * 0.1
+                            if area < min_area:
+                                print(f"  cv2 candidate too small (area={area:.0f}), skipping")
+                                continue
+                    
+                            crop_quad = candidate_quad.reshape(4, 2).tolist()
+                            print(f"  crop_quad raw: {crop_quad}")
+                            pixel_quad = _unproject_crop_quad(crop_quad, bbox)
+                            print(f"  cv2 quad unprojected: {pixel_quad}")
+                    
+                            highlight_path, highlighted_bytes = draw_quad_highlight(image_path, pixel_quad, attempt)
+                            print(f"  Highlight saved: {highlight_path}")
+                            confirmation = confirm_tv(highlighted_bytes, classify_result.get("reasoning", ""), image_path, run_id, mock=mock, tv_noconfirm=tv_noconfirm)
+                            print(f"  Attempt {attempt+1} confirm: is_tv={confirmation['is_tv']} confidence={confirmation['tv_confidence']}")
+                    
+                            if confirmation["is_tv"] and confirmation["tv_confidence"] >= CONFIRM_THRESHOLD:
+                                det["quad"] = pixel_quad
+                                print(f"  Quad: {det['quad']}")
+                                det["confirm_confidence"] = confirmation["tv_confidence"]
+                                confirmed.append(det)
+                                return confirmed
+                    
+                            print(f"  cv2 candidate rejected by confirm, trying next")
+                            quad_confirmed = False
+
                     else:
                         print("  cv2 found no quad, falling back to Gemini")
                         if mock:

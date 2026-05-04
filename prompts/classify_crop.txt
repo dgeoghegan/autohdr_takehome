@@ -16,7 +16,7 @@ Rules:
   standard: clear view, good contrast, screen edges well defined, no unusual conditions
   dim_lighting: room is dark, screen blends into surroundings, low contrast between bezel and wall
   sharp_angle: TV is viewed from the side, screen appears as a trapezoid rather than a rectangle
-  bright_reflection: strong glare or window reflection obscuring part of the screen surface
+  bright_reflection: the screen surface has strong glare or window reflection that is the PRIMARY obstacle to edge detection — not merely present but dominant enough to break the bezel outline
   partial_occlusion: furniture, plants, or other objects are covering part of the screen or bezel
 
 - If multiple conditions apply, pick the one that most affects edge detection

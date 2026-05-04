@@ -11,35 +11,30 @@ CV2_PRESETS = {
         "canny_low": 50,
         "canny_high": 150,
         "dilate_iterations": 1,
-        "approx_epsilon": 0.02,
     },
     "dim_lighting": {
         "blur_kernel": 7,
         "canny_low": 20,
         "canny_high": 80,
         "dilate_iterations": 2,
-        "approx_epsilon": 0.03,
     },
     "sharp_angle": {
         "blur_kernel": 5,
         "canny_low": 40,
         "canny_high": 130,
         "dilate_iterations": 1,
-        "approx_epsilon": 0.04,
     },
     "bright_reflection": {
         "blur_kernel": 9,
-        "canny_low": 60,
-        "canny_high": 180,
+        "canny_low": 50,
+        "canny_high": 130,
         "dilate_iterations": 1,
-        "approx_epsilon": 0.02,
     },
     "partial_occlusion": {
         "blur_kernel": 5,
         "canny_low": 30,
         "canny_high": 100,
         "dilate_iterations": 3,
-        "approx_epsilon": 0.05,
     },
 }
 
@@ -69,11 +64,16 @@ def find_screen_quad(crop_path: str, params: dict = None):
 
     quads = []
     for contour in contours[:10]:
-        peri = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, params["approx_epsilon"] * peri, True)
-        print(f"    contour area: {cv2.contourArea(contour):.0f}, vertices: {len(approx)}")
-        if len(approx) == 4:
-            quads.append(approx)
+        area = cv2.contourArea(contour)
+        if area < 1000:
+            continue
+        for epsilon_mult in [0.02, 0.03, 0.04, 0.05, 0.06]:
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon_mult * peri, True)
+            print(f"    contour area: {area:.0f}, epsilon: {epsilon_mult}, vertices: {len(approx)}")
+            if len(approx) == 4:
+                quads.append(approx)
+                break
 
     print(f"   Found {len(quads)} quad candidates")
     return quads
@@ -114,10 +114,20 @@ def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: 
     img = cv2.imread(image_path)
     replacement = cv2.imread(replacement_path)
 
+    print(f"  quad before sort: {quad}")
     quad = sort_quad_points(quad)
+    print(f"  quad after sort: {quad}")
     dst_pts = np.array(quad, dtype=np.float32)
 
-    x, y, w, h = cv2.boundingRect(dst_pts.astype(np.int32))
+    w = int(max(
+        np.linalg.norm(dst_pts[0] - dst_pts[1]),
+        np.linalg.norm(dst_pts[3] - dst_pts[2])
+    ))
+    h = int(max(
+        np.linalg.norm(dst_pts[0] - dst_pts[3]),
+        np.linalg.norm(dst_pts[1] - dst_pts[2])
+    ))
+
     src_pts = np.array([
         [0, 0],
         [w, 0],
