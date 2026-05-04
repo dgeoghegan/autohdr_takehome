@@ -43,3 +43,6 @@ photos/
 # Test Photo folders
 input_images/
 output_dir/
+
+# YOLO
+*.pt

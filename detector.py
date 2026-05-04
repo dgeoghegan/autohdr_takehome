@@ -6,6 +6,8 @@ from logger import log_token_comment
 import cv2
 from processor import draw_quad_highlight
 from mock_gemini import mock_gemini_vision, mock_confirm_tv, FIXTURE_TV_SINGLE, FIXTURE_TV_QUAD, FIXTURE_CONFIRM_TV_YES, FIXTURE_CONFIRM_TV_NO, MockGenerateContentResponse
+from ultralytics import YOLO
+
 
 DETECT_PROMPT_PATH = "prompts/id_tv_1.txt"
 REFINE_PROMPT_PATH = "prompts/id_tv_2.txt"
@@ -14,6 +16,10 @@ CONFIRM_THRESHOLD = 0.7
 BBOX_PADDING_PIX = 30
 MAX_RETRIES = 5
 SAVE_CROPS = True
+YOLO_MODEL_PATH = "yolov8n.pt"
+YOLO_TV_CLASS = 62
+YOLO_CONFIDENCE = 0.3
+_yolo_model = None
 
 def _descale_bbox(box_2d: list, width: int, height: int) -> dict:
     """Convert Gemini's [ymin, xmin, ymax, xmax] normalized 0-1000 to pixel coords."""
@@ -68,6 +74,11 @@ def confirm_tv(highlighted_bytes: bytes, reasoning: str, image_path: str, run_id
 
     return json.loads(raw)
 
+def _get_yolo():
+    global _yolo_model
+    if _yolo_model is None:
+        _yolo_model = YOLO(YOLO_MODEL_PATH)
+    return _yolo_model
 
 def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: MockGenerateContentResponse = FIXTURE_TV_SINGLE, tv_noconfirm: bool = False) -> list[dict]:
     img = cv2.imread(image_path)
@@ -75,35 +86,53 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
     _, buf = cv2.imencode(".jpg", img)
     image_bytes = buf.tobytes()
 
-    prompt = Path(DETECT_PROMPT_PATH).read_text()
     refine_prompt = Path(REFINE_PROMPT_PATH).read_text()
 
     confirmed = []
 
-    for attempt in range(MAX_RETRIES):
-        # Pass 1: full image, get bbox
-        if mock:
-            raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
-        else:
-            raw, usage = ask_gemini_vision(prompt, image_bytes)
-            log_token_comment(f"detect_tv:{Path(image_path).name}", usage, run_id)
-
+    # Pass 1: get bboxes
+    if mock:
+        prompt = Path(DETECT_PROMPT_PATH).read_text()
+        raw, usage = mock_gemini_vision(prompt, image_bytes, fixture)
         result = json.loads(raw)
-        print(f"  Pass 1 raw: {result}")
-
+        detections = []
         for det in result.get("detections", []):
             if det.get("tv_confidence", 0) < 0.7:
                 continue
-
             try:
                 bbox = _descale_bbox(det["box_2d"], w, h)
                 bbox = _pad_bbox(bbox, BBOX_PADDING_PIX, w, h)
+                detections.append({"bbox": bbox, "reasoning": det.get("reasoning", ""), "tv_confidence": det.get("tv_confidence", 0.9)})
             except (ValueError, KeyError) as e:
-                print(f"  Skipping detection, bad box_2d: {det.get('box_2d')} — {e}")
+                print(f"  Skipping mock detection: {e}")
+    else:
+        yolo = _get_yolo()
+        yolo_results = yolo(image_path, verbose=False)
+        detections = []
+        for box in yolo_results[0].boxes:
+            if int(box.cls) != YOLO_TV_CLASS:
                 continue
+            conf = float(box.conf)
+            if conf < YOLO_CONFIDENCE:
+                continue
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            bbox = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+            print(f"  YOLO TV: conf={conf:.2f} bbox={bbox}")
+            padding = max(50, int(max(x2 - x1, y2 - y1) * 0.15))
+            bbox = _pad_bbox(bbox, padding, w, h)
+            detections.append({"bbox": bbox, "reasoning": f"YOLO conf={conf:.2f}", "tv_confidence": conf})
 
-            # Pass 2: zoomed crop, get quad
+    if not detections:
+        print(f"  No TV detected in {image_path}")
+        return confirmed
+
+    # Pass 2: refine each bbox to a quad, with retries
+    for attempt in range(MAX_RETRIES):
+        for det in detections:
+            bbox = det["bbox"]
+
             crop_img, crop_bytes = _crop_bytes(img, bbox)
+
             if SAVE_CROPS:
                 crop_debug_dir = Path("photos/crops") / Path(image_path).stem
                 crop_debug_dir.mkdir(parents=True, exist_ok=True)
