@@ -1,154 +1,123 @@
-# AutoHDR TV Screen Replacement Pipeline
+AutoHDR TV Screen Replacement Project
 
-A Python pipeline that detects TV screens in real estate photos and replaces them with a provided image. Built as a take-home project for AutoHDR.
+This tool is a set of Python scripts that detects TV and monitor screens in photographs and replaces them with a provided image.
 
----
+## How it works
 
-## What It Does
+Each image in the input_images directory is processed in the following steps:
 
-Given a folder of source images, the pipeline:
+1. **Detection.** YOLO scans the full image for TVs (class 62). If it finds one above the confidence threshold, the bounding box is padded and passed forward. If YOLO finds nothing, Gemini is called with the full image to attempt bbox detection as a fallback.
 
-1. Detects TV screen candidates using Gemini Vision
-2. Crops the detected region and uses OpenCV to find the screen quadrilateral
-3. Draws a pink highlight around the candidate quad and sends the full image back to Gemini to confirm it's actually a TV
-4. If confirmed, warps the replacement image to fit the detected screen geometry using a perspective transform
-5. Evaluates the final output with a third Gemini pass before saving
-6. Logs token usage, per-image results, and run summaries throughout
+2. **Classification.** The detected region is cropped and sent to Gemini with a classification prompt that returns two things: whether a TV is actually present in the crop, and which lighting preset best describes the scene (standard, bright reflection, sharp angle, dim lighting, partial occlusion). Images where Gemini says no TV is present are skipped.
 
-```bash
-python run.py --input_dir ./input_images --output_dir ./output_images
-```
+3. **Quad detection.** The crop is processed with OpenCV edge detection using Canny parameters tuned for the classified preset. Contour candidates are filtered by area and approximated to quadrilaterals. Each candidate is unprojected back to full-image pixel coordinates.
 
----
+4. **Confirmation.** A pink highlight is drawn over the candidate quad and sent to Gemini, which returns whether it looks like a valid TV screen boundary. Candidates with diagonal edges, furniture anchoring, or incomplete coverage are rejected. If all cv2 candidates fail, Gemini is asked directly for quad coordinates as a fallback.
 
-## How to Build and Run
+5. **Replacement.** The confirmed quad is used to compute a perspective transform. The beach image is warped to fit the quad and composited into the original image before being copied to output_dir.
 
-### Requirements
+The whole loop retries up to 5 times per image before giving up.
 
+## How to run it
+
+### Setup
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### Environment Variables
-
-| Variable | Description |
-|---|---|
-| `GEMINI_API_KEY` | Required. Gemini API key. |
-
-Set it before running:
-
-```bash
 export GEMINI_API_KEY=your_key_here
 ```
 
-### CLI Flags
+Place your replacement image in `./assets` as `replacement.jpg` before running. `replacement-sample.jpg` is provided as an example.
+
+### Run
+```bash
+python run.py --input_dir ./input_images --output_dir ./output_images [--workers <N>]
+```
+
+### Flags
 
 | Flag | Description |
-|---|---|
+|------|-------------|
 | `--input_dir` | Required. Directory of source images. |
 | `--output_dir` | Required. Directory for output images. |
-| `--mock` | Use mock Gemini responses instead of real API calls. Useful for testing pipeline logic without burning tokens. |
-| `--tv_noconfirm` | Only meaningful with `--mock`. Forces the TV confirmation step to return no, for testing rejection logic. |
+| `--workers` | Number of parallel workers (default: 1). Added mid-development when sequential runs were too slow to iterate on. |
+| `--evaluate` | Enable Gemini-based post-placement quality evaluation (default: off — unreliable in practice). |
+| `--mock` | Use mock Gemini responses. Runs the full pipeline without API calls. (not supported) |
+| `--tv_noconfirm` | With --mock only. Forces confirmation to return no, for testing rejection logic. (not supported) |
+| `--compare` | Score results against ground truth using IoU. (not supported) |
 
----
+## Approach and Decisions
 
-## Architecture
+My general approach was to build logging, mocking, error handling, and scoring before trying to improve accuracy. Although my metrics for success evolved as I learned more about the domain, I felt I needed a way to measure the effects of tooling and prompt modifications.
 
-### Module Structure
+Key decisions:
 
-```
-run.py      # Thin orchestrator. Argparse, loop, nothing else.
-detector.py      # All Gemini interactions for detection and confirmation.
-processor.py     # All OpenCV work: cropping, quad detection, compositing.
-evaluator.py     # Post-replacement quality check via Gemini.
-ingestor.py      # Image discovery and path validation.
-logger.py        # Structured logging: tokens, per-image results, run summaries.
-gemini.py        # Low-level Gemini API client and exception hierarchy.
-mock_gemini.py   # Drop-in mock with fixture payloads for each pipeline stage.
-```
+- **YOLO over pure Gemini for detection**, with Gemini as fallback when YOLO finds nothing
+- **OpenCV edge detection for perspective-correct quad coordinates**, rather than relying on Gemini's bbox which tends to return a simple rectangle. Getting actual screen corners is what makes the perspective warp look correct rather than just scaling a bbox. This is also why lighting presets matter — Canny parameters that work on a well-lit screen fall apart on a dark or reflective one.
+- **Lighting classification step** to select tuned OpenCV presets per scene rather than one set of parameters, with Gemini deciding which preset to apply
+- **Confirmation loop** — sending a highlighted quad back to Gemini before committing to a placement
+- **Parallel workers** added mid-development to make iteration speed practical
+- **Abandoning certain loops and features** like a Gemini-based post-placement quality evaluation that seemed useful but instead increased time and token use without improving accuracy
 
-Dependency direction is one-way: `pipeline` → `detector/processor/evaluator` → `gemini/ingestor` → nothing. No module imports from a layer above it.
+## Sample Output
 
-### Detection Strategy
+| Before | After |
+|--------|-------|
+| [1001_src.jpg](assets/1001_src.jpg) | [1001_src_replaced.jpg](assets/1001_src_replaced.jpg) |
+| [1009_src.jpg](assets/1009_src.jpg) | [1009_src_replaced.jpg](assets/1009_src_replaced.jpg) |
+| [102_src.jpg](assets/102_src.jpg) | [102_src_replaced.jpg](assets/102_src_replaced.jpg) |
+| [1022_src.jpg](assets/1022_src.jpg) | [1022_src_replaced.jpg](assets/1022_src_replaced.jpg) |
+| [1025_src.jpg](assets/1025_src.jpg) | [1025_src_replaced.jpg](assets/1025_src_replaced.jpg) |
+| [1250_src.jpg](assets/1250_src.jpg) | [1250_src_replaced.jpg](assets/1250_src_replaced.jpg) |
+| [1360_src.jpg](assets/1360_src.jpg) | [1360_src_replaced.jpg](assets/1360_src_replaced.jpg) |
+| [1361_src.jpg](assets/1361_src.jpg) | [1361_src_replaced.jpg](assets/1361_src_replaced.jpg) |
 
-Gemini Vision is the primary detection mechanism. It receives the full source image and returns bounding boxes (normalized 0-1000) for TV candidates, along with confidence scores and reasoning.
+## Metrics
 
-### The Confirmation Loop
+The pipeline reports two success metrics. `success_pct` counts any image where a quad was confirmed and a replacement was saved, including cases where the placement is visually wrong. `true_success_rate` counts only images where the saved placement scored IoU ≥ 0.5 against ground truth bboxes, or where a no-TV image was correctly skipped.
 
-After Gemini returns a bounding box, OpenCV crops the region, detects quadrilateral contours, and finds screen candidates. For each candidate, the quad is drawn in pink on the full source image and sent back to Gemini with the question: "is this highlighted region a complete television screen?"
+"Ground truth" was generated by pixel-diffing the provided src/tar image pairs. The changed region in the tar image marks where the replacement was placed, giving the correct bounding box to score against.
 
-This second pass catches false positives (fireplaces, reflections, artwork) and partial detections. Only confirmed quads proceed to replacement.
+One problem is that ground truth does not generate reliably for all image pairs, so `true_success_rate` undercounts real successes: Images where the placement is correct but no ground truth exists just don't score. The 85% figure cited here is based on visual inspection of outputs, not a clean metric. Complete ground truth coverage across all images would make `true_success_rate` authoritative.
 
-### Perspective Transform
-
-The replacement image is warped to fit the detected quadrilateral using `cv2.getPerspectiveTransform`. Quad points are sorted into consistent top-left, top-right, bottom-right, bottom-left order before the transform to prevent rotation artifacts. The result is composited back onto the original image at full resolution.
-
-### Evaluation Before Save
-
-The pipeline evaluates the composited image with a third Gemini call before writing it to disk. If Gemini determines the replacement was not correctly applied, the output is discarded rather than saved. This keeps the output directory clean and provides a signal for the accuracy metric.
-
-### Mocking
-
-Every external dependency has a mock. `mock_gemini.py` contains fixture payloads for each stage: initial detection, TV confirmation (yes/no/uncertain), and evaluation (success/failure). The `--mock` flag swaps real API calls for fixtures end-to-end, allowing the full pipeline to run without network access or token spend.
-
----
+Despite the limitations of these metrics, they did provide a benchmark against which to measure my progress.
 
 ## Logging
 
-Three log files are written to `logs/`:
+- `token_usage.jsonl` — one record per Gemini API call with token counts and run_id for aggregation.
+- `image_results.jsonl` — one record per image per run with status and failure reason. Successful runs include the IoU score. No-TV images that are correctly skipped are logged as `correctly_no_tv` and counted as successes.
+- `run_summary.jsonl` — aggregate counts, total tokens, and runtime per run.
 
-**`token_usage.jsonl`** — one record per Gemini API call, with token counts and a `run_id` for aggregation.
+Sample log output is included in `assets/logs/`.
 
-**`image_results.jsonl`** — one record per image per run, with status (`success`, `no_tv_detected`, `evaluation_failed`, `gemini_error`, `cv2_no_quad`) and a failure reason where applicable.
+## Module structure
 
-**`run_summary.jsonl`** — one record per run, with aggregate counts, total tokens, and runtime.
+- `run.py` — entry point, ThreadPoolExecutor, per-image orchestration, IoU scoring, stats logging
+- `detector.py` — YOLO detection, Gemini bbox fallback, crop classification, cv2 quad detection, Gemini quad fallback, confirmation loop
+- `processor.py` — cv2 operations: edge detection presets, contour finding, perspective transform, image compositing
+- `evaluator.py` — Gemini-based post-placement quality check (unreliable, off by default)
+- `ingestor.py` — image discovery
+- `gemini.py` — Gemini API wrapper
+- `logger.py` — JSONL logging for token usage, image results, run summaries
+- `mock_gemini.py` — fixture responses for all Gemini stages, used with `--mock`
 
-Token counts are aggregated by `run_id` at the end of each run rather than being passed up through the call stack. This is a pragmatic tradeoff — threading counts through `detect_tvs` → `confirm_tv` → `evaluate_result` would be cleaner but was too invasive given time constraints. A comment in the code marks where this should be refactored.
+**Development/analysis tools (unsupported):**
+- `test_run.py` — runs the pipeline and captures metrics, git diffs, and console logs per run
+- `analyze_runs.py` — cross-run metrics analysis
+- `analyze_image_costs.py` — links token usage to image results by run_id
+- `extract_ground_truth.py` — diffs src/tar image pairs to extract ground truth bboxes
 
----
+Dependency direction is one-way: run → detector/processor/evaluator → gemini/ingestor → nothing.
 
-## Failure Modes
+Prompts are stored as flat text files in `prompts/` so they can be edited without touching code. Every Gemini call has a corresponding mock fixture so the pipeline can be tested end-to-end without network access.
 
-**Gemini's bounding boxes are inconsistent run-to-run on the same image. The confirmation loop catches most bad boxes: a poor localization produces a quad Gemini won't confirm. Failed images are logged and skipped rather than retried.
+## Known limitations
 
-**OpenCV quad sensitivity.** cv2 contour detection is sensitive to lighting, contrast, and competing edges in the crop. High-noise crops (angled ceilings, complex furniture) can produce zero quad candidates or pick the wrong contour. The confirmation step catches most of these, but some images will produce no confirmed quad.
+**Non-convex placements.** Occasionally the pipeline produces a skewed or triangular composite rather than a clean rectangular fill. This happens when cv2 finds a non-convex contour — typically caused by a window reflection creating a dominant diagonal edge across the TV screen — and the confirmation step passes it anyway. The fix is a `cv2.isContourConvex()` check before the confirm call, which I identified but didn't implement to avoid a late-stage refactor.
 
-**Partial TV crops.** If Gemini's bounding box clips the TV, OpenCV works with an incomplete outline. Bbox padding (configurable via `BBOX_PADDING_PIX`) reduces this, but large localization errors can't be recovered without a retry.
+**Aspect ratio mismatch.** The replacement image is a fixed asset. When the detected screen has a significantly different aspect ratio the warp stretches or compresses the replacement noticeably. The fix would be cropping the replacement to match the target aspect ratio before warping.
 
-**Occlusion.** TVs partially obscured by plants, furniture, or people will confuse both Gemini localization and cv2 contour detection. This is expected to be a small percentage of the dataset and is not currently handled.
+**Known unsolvable images.** A small number of images burn through all 5 retry attempts on every run — specifically extreme side-angle shots and TVs at significant distance. These consume a disproportionate share of token budget. A skip list would be the practical fix.
 
-**Confounders.** Fireplaces, windows, mirrors, and appliance displays can be mistaken for TVs. The detection prompt explicitly names these, and the confirmation prompt requires a complete TV screen. The combination handles most cases.
-
----
-
-## Production Considerations
-
-These are design decisions for a production deployment. None of this is built.
-
-**Queuing.** At scale, put an SQS queue in front of an ECS service and autoscale on queue depth. The pipeline is stateless by design (no local writes during execution except explicit output artifacts), which makes this straightforward. The rough architecture would be: S3 → SQS → ECS → S3/RDS.
-
-**Scaling surfaces.** Ingestion, Gemini inference, and output writing scale independently. Gemini calls are the bottleneck because they're sequential per image right now. Concurrent processing with bounded parallelism (asyncio or a thread pool) would be the first optimization.
-
-**Kubernetes.** Not the right call yet. ECS or Cloud Run is appropriate at this stage. Kubernetes becomes worth the operational overhead when you have multiple services with different scaling profiles that need independent deployment. A modular monolith that's proven its seams is the right precondition for that conversation.
-
-**Model evolution.** Gemini 2.5 Flash is the current model. If accuracy plateaus before 95%, the next step is fine-tuning a domain-specific model on AutoHDR's labeled dataset rather than continuing to prompt-engineer a general model. The pluggable detection strategy interface is designed to make this swap clean.
-
-**Retry loop.** Detection and confirmation should retry up to N times per image, with a fresh Gemini call each attempt. Gemini's bounding box variability means a second attempt often produces a better result. This is the highest-priority unbuilt feature for accuracy improvement.
-
----
-
-## What Was Not Built and Why
-
-**Retry loop.** The most impactful missing feature. Architecture supports it — `detect_tvs` would loop up to a configurable max, returning on first confirmed detection. Not built due to time, not due to complexity.
-
-**Containerization.** `requirements.txt` is the source of truth for dependencies. A Dockerfile is straightforward given the stateless design. Not built yet.
-
-**Ground truth accuracy measurement.** The S3 bucket contains before/after pairs (`_src` and `_tar`). A ground truth JSON mapping filenames to expected outcomes would allow automated accuracy scoring against those pairs. The evaluation step produces a per-image signal; the aggregation layer is not built.
-
-**Unit tests.** The mock infrastructure is in place. pytest tests for `_descale_bbox`, `sort_quad_points`, `discover_images`, and the exception hierarchy are the obvious starting points. Not written yet.
-
-**Bezel-aware placement.** The replacement image currently fills the full detected quad including bezel. Nudging quad points slightly inward toward the centroid before compositing would preserve the bezel. One-line change, not yet done.
-
-**Lighting normalization.** The replacement image is pasted without color grading to match room lighting. A post-processing step to match luminance could improve realism. Not in scope for this project.
+**Debug artifacts.** Crop images, edge maps, and highlight overlays are written to `/tmp/autohdr_crops/` on every run. In production these should be gated behind a `--debug` flag, but I opted not to refactor this late in development.
