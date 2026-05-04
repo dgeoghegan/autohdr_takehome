@@ -48,7 +48,16 @@ def main():
     diff_path.write_text(diff_result.stdout)
 
     # run pipeline
-    result = subprocess.run(["python", "run.py", "--input_dir", INPUT_DIR, "--output_dir", OUTPUT_DIR, "--compare", "--workers", "6"])
+    result = subprocess.run(
+        ["python", "run.py", "--input_dir", INPUT_DIR, "--output_dir", OUTPUT_DIR, "--compare", "--workers", "8"],
+        capture_output=True, text=True
+    )
+    print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+
+    console_log = Path("logs") / f"{run_timestamp}_console.txt"
+    console_log.write_text(result.stdout + result.stderr)
 
     # pull run summary from last line
     run_summary = {}

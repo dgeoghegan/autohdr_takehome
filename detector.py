@@ -219,8 +219,8 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                     params = CV2_PRESETS[preset_name]
                     quads = find_screen_quad(crop_path, params)
 
+                    pixel_quad = None
                     if quads:
-                        quad_confirmed = False
                         for candidate_quad in quads:
                             area = cv2.contourArea(candidate_quad)
                             min_area = (bbox["x2"] - bbox["x1"]) * (bbox["y2"] - bbox["y1"]) * 0.1
@@ -246,7 +246,8 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                                 return confirmed
                     
                             print("  cv2 candidate rejected by confirm, trying next")
-                    else:
+                            pixel_quad = None  # reset after rejection
+                    if pixel_quad is None:
                         print("  cv2 found no quad, falling back to Gemini")
                         if mock:
                             raw2, usage2 = mock_gemini_vision(refine_prompt, crop_bytes, FIXTURE_TV_QUAD)

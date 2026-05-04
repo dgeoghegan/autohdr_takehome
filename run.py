@@ -53,32 +53,32 @@ def process_image(image_path, run_id, args, ground_truth, stats, stats_lock):
                 continue
 
             replaced_img, out_path = replace_screen(image_path, det["quad"], REPLACEMENT_PATH, args.output_dir)
-            evaluation = evaluate_result_from_image(replaced_img, image_path, run_id, mock=args.mock)
 
-            if evaluation["success"]:
-                save_result(replaced_img, out_path)
-                with stats_lock:
-                    stats.successes += 1
+            if args.evaluate:
+                evaluation = evaluate_result_from_image(replaced_img, image_path, run_id, mock=args.mock)
+                if not evaluation["success"]:
+                    print(f"  [{Path(image_path).name}] Eval attempt {eval_attempt+1} failed, retrying...")
+                    continue
+            
+            save_result(replaced_img, out_path)
+            with stats_lock:
+                stats.successes += 1
 
-                quad_bbox = quad_to_bbox(det["quad"])
-                gt = ground_truth.get(Path(image_path).name)
-                if gt and gt.get("no_tv"):
-                    # pipeline found a TV but there isn't one — false positive
-                    log_image_result(image_path, "false_positive", run_id)
-                else:
-                    gt_bbox = gt.get("bbox") if "bbox" in gt else gt
-                    score = iou(quad_bbox, gt_bbox)
-                    print(f"  [{Path(image_path).name}] IoU: {score:.2f}")
-                    log_image_result(image_path, "success", run_id, f"iou={score:.2f}")
-                saved = True
-                break
+            quad_bbox = quad_to_bbox(det["quad"])
+            gt = ground_truth.get(Path(image_path).name)
+            if gt and gt.get("no_tv"):
+                log_image_result(image_path, "false_positive", run_id)
+            elif gt and "bbox" in gt:
+                gt_bbox = gt.get("bbox")
+                score = iou(quad_bbox, gt_bbox)
+                print(f"  [{Path(image_path).name}] IoU: {score:.2f}")
+                log_image_result(image_path, "success", run_id, f"iou={score:.2f}")
             else:
-                print(f"  [{Path(image_path).name}] Eval attempt {eval_attempt+1} failed, retrying...")
-
-        if saved:
+                log_image_result(image_path, "success", run_id)
+            saved = True
             break
 
-    if not saved and evaluation:
+    if not saved and args.evaluate:
         with stats_lock:
             stats.evaluation_failed += 1
         log_image_result(image_path, "evaluation_failed", run_id, evaluation.get("reasoning", ""))
@@ -92,6 +92,7 @@ def main():
     parser.add_argument("--tv_noconfirm", action="store_true", help="Only with --mock. Force Gemini TV confirmation to return no")
     parser.add_argument("--compare", action="store_true", help="Compare results against ground truth bbox using IoU")
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers")
+    parser.add_argument("--evaluate", action="store_true", help="Run Gemini evaluator on replacements (default: off)")
     args = parser.parse_args()
 
     image_paths = discover_images(args.input_dir)
