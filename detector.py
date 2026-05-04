@@ -14,7 +14,7 @@ REFINE_PROMPT_PATH = "prompts/id_tv_2.txt"
 CONFIRM_PROMPT_PATH = "prompts/confirm_tv.txt"
 CLASSIFY_PROMPT_PATH = "prompts/classify_crop.txt"
 CONFIRM_THRESHOLD = 0.7
-BBOX_PADDING_PIX = 0
+BBOX_PADDING_PIX = 20
 MAX_RETRIES = 5
 SAVE_CROPS = True
 YOLO_MODEL_PATH = "yolov8l.pt"
@@ -245,9 +245,7 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                                 confirmed.append(det)
                                 return confirmed
                     
-                            print(f"  cv2 candidate rejected by confirm, trying next")
-                            quad_confirmed = False
-
+                            print("  cv2 candidate rejected by confirm, trying next")
                     else:
                         print("  cv2 found no quad, falling back to Gemini")
                         if mock:

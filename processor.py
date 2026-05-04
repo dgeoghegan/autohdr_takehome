@@ -48,8 +48,10 @@ def find_screen_quad(crop_path: str, params: dict = None):
         return []
 
     blur_k = params["blur_kernel"]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (blur_k, blur_k), 0)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    _, _, v = cv2.split(hsv)
+    dark_mask = cv2.bitwise_not(v)
+    blurred = cv2.GaussianBlur(dark_mask, (blur_k, blur_k), 0)
     edges = cv2.Canny(blurred, params["canny_low"], params["canny_high"])
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     edges = cv2.dilate(edges, kernel, iterations=params["dilate_iterations"])

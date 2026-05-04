@@ -23,3 +23,6 @@ Rules:
 - The entire television screen must be visible within the pink highlight. If the TV screen continues beyond any edge of the highlighted region, answer false. A partial TV screen is not acceptable.
 - The pink-highlighted region must show the front-facing screen surface of a television. A bezel, frame, top, side, or back of a TV is not acceptable. If you cannot see the actual display surface within the highlighted region, answer false.
 - The pink-highlighted region must contain the complete TV — if any part of the screen extends outside the highlight, answer false even if the visible portion looks like a TV
+- Examine each edge of the highlighted region carefully. Every side of the pink outline must follow the physical edge of the TV bezel. If any side of the pink outline cuts diagonally across the image rather than following a bezel edge, answer false.
+- If any corner of the pink outline is anchored to furniture, a speaker, a window frame, or any object that is not the TV bezel, answer false.
+- A correct highlight will have four sides that each run parallel to a bezel edge with no diagonal cuts across open space.
