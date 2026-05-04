@@ -5,6 +5,78 @@ import numpy as np
 
 CROP_DIR    = "photos/crops"
 OUTPUT_DIR = "photos/output"
+CV2_PRESETS = {
+    "standard": {
+        "blur_kernel": 5,
+        "canny_low": 50,
+        "canny_high": 150,
+        "dilate_iterations": 1,
+        "approx_epsilon": 0.02,
+    },
+    "dim_lighting": {
+        "blur_kernel": 7,
+        "canny_low": 20,
+        "canny_high": 80,
+        "dilate_iterations": 2,
+        "approx_epsilon": 0.03,
+    },
+    "sharp_angle": {
+        "blur_kernel": 5,
+        "canny_low": 40,
+        "canny_high": 130,
+        "dilate_iterations": 1,
+        "approx_epsilon": 0.04,
+    },
+    "bright_reflection": {
+        "blur_kernel": 9,
+        "canny_low": 60,
+        "canny_high": 180,
+        "dilate_iterations": 1,
+        "approx_epsilon": 0.02,
+    },
+    "partial_occlusion": {
+        "blur_kernel": 5,
+        "canny_low": 30,
+        "canny_high": 100,
+        "dilate_iterations": 3,
+        "approx_epsilon": 0.05,
+    },
+}
+
+def find_screen_quad(crop_path: str, params: dict = None):
+    if params is None:
+        params = CV2_PRESETS["standard"]
+
+    img = cv2.imread(crop_path)
+    if img is None:
+        print(f"    Could not read {crop_path}")
+        return []
+
+    blur_k = params["blur_kernel"]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (blur_k, blur_k), 0)
+    edges = cv2.Canny(blurred, params["canny_low"], params["canny_high"])
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, kernel, iterations=params["dilate_iterations"])
+
+    stem = Path(crop_path).stem
+    parent = Path(crop_path).parent
+    cv2.imwrite(str(parent / f"{stem}_edges.jpg"), edges)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    print(f"  Found {len(contours)} contours")
+
+    quads = []
+    for contour in contours[:10]:
+        peri = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, params["approx_epsilon"] * peri, True)
+        print(f"    contour area: {cv2.contourArea(contour):.0f}, vertices: {len(approx)}")
+        if len(approx) == 4:
+            quads.append(approx)
+
+    print(f"   Found {len(quads)} quad candidates")
+    return quads
 
 def save_crop(image_path: str, det: dict, index: int) -> str:
     base = Path(image_path).stem
@@ -37,37 +109,6 @@ def save_crops(image_path: str, detections: list) -> list[str]:
         crop_paths.append(out_path)
         print(f"    Saved {out_path}")
     return crop_paths
-
-def find_screen_quad(crop_path: str):
-    img = cv2.imread(crop_path)
-    if img is None:
-        print(f"    Could not read {crop_path}")
-        return []
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 50, 150)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.dilate(edges, kernel, iterations=1)
-
-    stem = Path(crop_path).stem
-    parent = Path(crop_path).parent
-    cv2.imwrite(str(parent / f"{stem}_edges.jpg"), edges)
-
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-    print(f"  Found {len(contours)} contours")
-
-    quads = []
-    for contour in contours[:10]: # log top 10
-        peri = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-        print(f"    contour area: {cv2.contourArea(contour):.0f}, vertices: {len(approx)}")
-        if len(approx) == 4:
-            quads.append(approx)
-
-    print(f"   Found {len(quads)} quad candidates")
-    return quads
 
 def replace_screen(image_path: str, quad: list, replacement_path: str, out_dir: str) -> str:
     img = cv2.imread(image_path)

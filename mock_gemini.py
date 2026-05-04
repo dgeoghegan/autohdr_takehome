@@ -118,6 +118,14 @@ FIXTURE_TV_QUAD = MockGenerateContentResponse(
     })
 )
 
+FIXTURE_CLASSIFY_STANDARD = MockGenerateContentResponse(
+    text=json.dumps({
+        "has_tv": True,
+        "preset": "standard",
+        "reasoning": "Clear view of TV screen with well-defined edges and good contrast"
+    })
+)
+
 # --- Mock client ---
 
 def mock_gemini_vision(prompt: str, image_bytes: bytes, fixture: MockGenerateContentResponse) -> tuple[str, MockUsageMetadata]:
