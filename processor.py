@@ -3,8 +3,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-CROP_DIR    = "photos/crops"
-OUTPUT_DIR = "photos/output"
+CROP_DIR    = "/tmp/crops"
 CV2_PRESETS = {
     "standard": {
         "blur_kernel": 5,

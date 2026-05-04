@@ -146,7 +146,7 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
                 cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(debug_img, f"cls={cls} {conf:.2f}", (x1, y1 - 5),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            yolo_debug_dir = Path("photos/crops") / Path(image_path).stem
+            yolo_debug_dir = Path("/tmp/crops") / Path(image_path).stem
             yolo_debug_dir.mkdir(parents=True, exist_ok=True)
             out_path = str(yolo_debug_dir / f"{Path(image_path).stem}_yolo_debug.jpg")
             cv2.imwrite(out_path, debug_img)
@@ -182,7 +182,7 @@ def detect_tvs(image_path: str, run_id: str = "", mock: bool = False, fixture: M
             crop_img, crop_bytes = _crop_bytes(img, bbox)
 
             # Always save crop — needed for cv2
-            crop_debug_dir = Path("photos/crops") / Path(image_path).stem
+            crop_debug_dir = Path("/tmp/crops") / Path(image_path).stem
             crop_debug_dir.mkdir(parents=True, exist_ok=True)
             crop_path = str(crop_debug_dir / f"{Path(image_path).stem}_p1_attempt{attempt}.jpg")
             success = cv2.imwrite(crop_path, crop_img)

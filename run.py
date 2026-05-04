@@ -13,8 +13,8 @@ from processor import replace_screen, save_result, quad_to_bbox
 from evaluator import evaluate_result_from_image, iou
 from logger import RunStats, log_image_result
 
-REPLACEMENT_PATH = "photos/replacement/autohdr.beach.jpeg"
-GROUND_TRUTH_PATH = "photos/ground_truth.json"
+REPLACEMENT_PATH = "assets/replacement.jpg"
+GROUND_TRUTH_PATH = "<unsupported>"
 MAX_EVAL_RETRIES = 3
 
 
