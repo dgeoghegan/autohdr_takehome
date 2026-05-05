@@ -118,6 +118,4 @@ Prompts are stored as flat text files in `prompts/` so they can be edited withou
 
 **Aspect ratio mismatch.** The replacement image is a fixed asset. When the detected screen has a significantly different aspect ratio the warp stretches or compresses the replacement noticeably. The fix would be cropping the replacement to match the target aspect ratio before warping.
 
-**Known unsolvable images.** A small number of images burn through all 5 retry attempts on every run — specifically extreme side-angle shots and TVs at significant distance. These consume a disproportionate share of token budget. A skip list would be the practical fix.
-
 **Debug artifacts.** Crop images, edge maps, and highlight overlays are written to `/tmp/autohdr_crops/` on every run. In production these should be gated behind a `--debug` flag, but I opted not to refactor this late in development.
